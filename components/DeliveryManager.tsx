@@ -174,10 +174,10 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 if (data) {
                     setDeliveries(prev => {
                         const updatedDeliveriesMap = new Map(prev.map(d => [d.id, d]));
-                        // Fix: The data returned from Supabase is untyped, so we cast each item
-                        // to the `Delivery` type to access its properties safely.
-                        // By explicitly typing `d` as `Delivery`, we ensure `d.id` is a number.
-                        data.forEach((d: Delivery) => {
+                        // FIX: Type 'unknown' is not assignable to type 'number'.
+                        // The data from Supabase can be untyped. By casting the array to Delivery[],
+                        // we ensure that `d.id` is correctly inferred as a number.
+                        (data as Delivery[]).forEach((d) => {
                             updatedDeliveriesMap.set(d.id, d);
                         });
                         return Array.from(updatedDeliveriesMap.values());
