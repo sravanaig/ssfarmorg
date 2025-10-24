@@ -1,0 +1,5 @@
+{
+  "name": "ssfatmorganic",
+  "description": "A responsive web application to manage customers, track daily milk deliveries, generate bills, and record payments for a milk delivery business.",
+  "requestFramePermissions": []
+}
