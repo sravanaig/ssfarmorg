@@ -195,15 +195,23 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         
         const newCustomersData = rows.slice(1).map(row => {
             const values = row.split(',');
+            // Helper to safely get value from CSV row, preventing errors on malformed rows
+            const getColumnValue = (columnName: string) => values[header.indexOf(columnName)] || '';
+
             return {
-                name: values[header.indexOf('name')].trim(),
-                address: values[header.indexOf('address')].trim(),
-                phone: values[header.indexOf('phone')].trim().replace('?',''),
-                milkPrice: parseFloat(values[header.indexOf('milkPrice')]) || 0,
-                defaultQuantity: parseFloat(values[header.indexOf('defaultQuantity')]) || 0,
+                name: getColumnValue('name').trim(),
+                address: getColumnValue('address').trim(),
+                phone: getColumnValue('phone').trim().replace('?',''),
+                milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
+                defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
                 userId: user.id,
             };
-        });
+        }).filter(customer => customer.name); // Filter out empty rows that might result from newlines
+
+        if (newCustomersData.length === 0) {
+            alert("No valid customer data found to import.");
+            return;
+        }
 
         const { data, error } = await supabase.from('customers').insert(newCustomersData).select();
         if (error) throw error;
