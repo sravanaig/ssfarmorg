@@ -302,14 +302,19 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     <div>
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-gray-800">Daily Deliveries</h2>
-        <div className="flex items-center flex-wrap gap-2">
-            <input
-                id="delivery-date"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
+        <div className="flex items-center flex-wrap gap-4">
+            <div className="flex items-center gap-2">
+                <label htmlFor="delivery-date" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                    Filter by Date:
+                </label>
+                <input
+                    id="delivery-date"
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+            </div>
             <button onClick={handleSetAllDefaults} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
                 Set Defaults for All
             </button>
