@@ -1,13 +1,15 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { Customer } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon, CheckIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 
 interface CustomerManagerProps {
   customers: Customer[];
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+  projectRef: string | null;
 }
 
 const downloadCSV = (csvContent: string, filename: string) => {
@@ -30,51 +32,78 @@ const CustomerForm: React.FC<{
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
-    const [milkPrice, setMilkPrice] = useState(0);
     const [defaultQuantity, setDefaultQuantity] = useState(1);
+    const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
     useEffect(() => {
         if (customerToEdit) {
             setName(customerToEdit.name);
             setAddress(customerToEdit.address);
             setPhone(customerToEdit.phone);
-            setMilkPrice(customerToEdit.milkPrice);
             setDefaultQuantity(customerToEdit.defaultQuantity);
         } else {
             setName('');
             setAddress('');
             setPhone('');
-            setMilkPrice(0);
             setDefaultQuantity(1);
         }
+        setErrors({});
     }, [customerToEdit]);
+
+    const validate = () => {
+        const newErrors: { [key: string]: string } = {};
+        if (!name.trim()) newErrors.name = "Name is required.";
+        if (!address.trim()) newErrors.address = "Address is required.";
+        if (phone && !/^\+?[\d\s-]{10,15}$/.test(phone)) {
+            newErrors.phone = "Please enter a valid phone number.";
+        }
+        if (defaultQuantity <= 0) newErrors.defaultQuantity = "Quantity must be a positive number.";
+        
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ name, address, phone, milkPrice, defaultQuantity });
+        if (validate()) {
+            onSubmit({ name, address, phone, milkPrice: 90, defaultQuantity });
+        }
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <input type="text" value={name} onChange={e => setName(e.target.value)} required className={`mt-1 block w-full border ${errors.name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-700">Address</label>
-                <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className={`mt-1 block w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-700">Phone</label>
-                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`mt-1 block w-full border ${errors.phone ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
             </div>
             <div>
-                <label className="block text-sm font-medium text-gray-700">Milk Price (per liter/unit)</label>
-                <input type="number" step="0.01" value={milkPrice} onChange={e => setMilkPrice(parseFloat(e.target.value))} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Default Quantity (liters/units)</label>
-                <input type="number" step="0.5" value={defaultQuantity} onChange={e => setDefaultQuantity(parseFloat(e.target.value))} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
+                <select
+                    value={defaultQuantity}
+                    onChange={e => setDefaultQuantity(parseFloat(e.target.value))}
+                    required
+                    className={`mt-1 block w-full border ${errors.defaultQuantity ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                >
+                    <option value={0.5}>1/2 liter</option>
+                    <option value={1}>1 liter</option>
+                    <option value={1.5}>1 1/2 liter</option>
+                    <option value={2}>2 liter</option>
+                    <option value={2.5}>2 1/2 liter</option>
+                    <option value={3}>3 liter</option>
+                </select>
+                {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
             </div>
             <div className="flex justify-end pt-4 space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
@@ -84,11 +113,20 @@ const CustomerForm: React.FC<{
     );
 };
 
-const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers }) => {
+const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
-  const [isSeeding, setIsSeeding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const migrationSql = `-- This script assigns existing customers (that don't have an owner) to your user account.\n-- It's safe to run multiple times.\nUPDATE public.customers SET "userId" = auth.uid() WHERE "userId" IS NULL;`;
+
+  const handleCopySql = () => {
+      navigator.clipboard.writeText(migrationSql);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 2000);
+  };
 
   const handleAddCustomer = async (customerData: Omit<Customer, 'id' | 'userId'>) => {
     try {
@@ -97,7 +135,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
 
         const { data, error } = await supabase
             .from('customers')
-            .insert([{ ...customerData, userId: user.id }])
+            .insert({ ...customerData, userId: user.id })
             .select()
             .single();
 
@@ -243,107 +281,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     reader.readAsText(file);
   };
 
-  const handleSeedData = async () => {
-    setIsSeeding(true);
-    const csvData = `name,address,phone,milkPrice,defaultQuantity
-ABHINAV REDDY,Medipally,8978173143,90,1
-Akhil Ramidi,Medipally,8297592481,90,0.5
-Aravind,Medipally,9885134431,90,1
-Arram Satyanarayana,Medipally,9391126999,90,0.5
-B Tech Rakesh,Medipally,9398007582,90,0.5
-Bhagyalakshmi,Medipally,9704400116,90,0.5
-Bhaskar,Medipally,7093477304,90,1
-Bullabbai,Medipally,8466042015,90,0.5
-Chinnam Raju,Medipally,9000605257,90,0.5
-Dayakar Reddy Sai Ishwarya,Medipally,9550639548,90,0.5
-Devender M,Medipally,9394841050,90,1
-DLN,Medipally,9866602647,90,0.5
-Dr Naresh,Medipally,9700241550,90,0.5
-Dr. Vivek,Medipally,9908584400,90,0.5
-GANESH,Medipally,9177477320,90,0.5
-Idli bandi,Medipally,8019635177,90,0.5
-KAPIL,Medipally,8790967957,90,0.5
-Kiran Akhil,Medipally,9390472205,90,0.5
-M Bhanu Pratap,Medipally,9063842335,90,0.5
-MAhesh Flexy,Medipally,8919461017,90,1
-Mallareddy Sai Ishwarya,Medipally,9000877034,90,0.5
-Mendu,Medipally,7306308573,90,0.5
-Moole Madhusoodhan,Medipally,9959187960,90,0.5
-Musli Sunil,Medipally,6305251123,90,1
-NANI,Medipally,9000222309,90,0.5
-Naresh Kolagani,Medipally,9948464446,90,0.5
-Naveen Decors,Medipally,9700241550,90,0.5
-Ambika OM Viharika,Medipally,7013125811,90,1
-Sudhakar Nayak VN Colony,Medipally,9490042454,90,0.5
-Nayak- Seshagiri,Medipally,9701919574,90,0.5
-Padma VN Colony,Medipally,9948464446,90,0.5
-PASHA,Medipally,9290209672,90,0.5
-Penta Sravan,Medipally,9347018900,90,0.5
-PRASAD RMP,Medipally,7013125811,90,0.5
-Rakhi Raghavender,Medipally,9494268454,90,0.5
-Ramesh Yele,Medipally,9703230002,90,0.5
-RAVI KUMAR,Medipally,8008108431,90,0.5
-Sai Kiran BAJAJ,Medipally,9000767821,90,0.5
-SARASWATI,Medipally,7386463787,90,0.5
-Sheela Ravinder,Medipally,8919027576,90,0.5
-Sheshagiri Rao,Medipally,9290014132,90,1
-Shyam jee,Medipally,9866663504,90,0.5
-Singham Lakshman,Medipally,9000767904,90,1
-SRAVAN REDDY,Medipally,9666066722,90,0.5
-Srikanth Sankuri,Medipally,9701096269,90,0.5
-Srinivas apex,Medipally,9666629639,90,1
-Srinivas Madhugani,Medipally,9949223107,90,0.5
-SRINIVAS YOGA,Medipally,9490379036,90,0.5
-Srisailam Balda,Medipally,9290003464,90,0.5
-SUBHASHINI,Medipally,9133763118,90,0.5
-Sudhakar,Medipally,9959202010,90,0.5
-Suman Gajula,Medipally,8686110022,90,0.5
-Sunkari Surender,Medipally,8686860404,90,0.5
-SURESH Kolagani,Medipally,8297297272,90,0.5
-U Sravani chaitanya,Medipally,9247009999,90,2
-Vakiti Harikrishan,Medipally,9848356916,90,1
-Vamshi Gillella,Medipally,9885690291,90,0.5
-Venkanna Chick Shop,Medipally,8978956142,90,0.5
-Vikram,Medipally,9491609023,90,0.5
-YASOJU KS,Medipally,9347203760,90,1
-Yadagiri Podile Panchavati 2,Medipally,9347519577?,90,0.5
-Rangaiah MNR,Medipally,9542708465,90,0.5
-Vijay Kumar Aniganti,Medipally,9866224788,90,0.5
-Sandeep - Medipally,Medipally,9966989626,90,1
-Bussa Radhika,Medipally,9848583893,90,0.5
-Lorry Service,Medipally,9052311502,90,1
-VIJAYA USHA RANI RCUES,Medipally,8639817210,90,0.5
-ANITHA RCUES,Medipally,7799448356,90,0.5
-Nagaraju Akhil,Medipally,,90,0.5
-Shashi Narugula Suma residency,Medipally,9042367693,90,0.5
-Veeresh Akhil,Medipally,,90,0.5
-Akhil Ref V Puri 22,Medipally,,90,0.5
-Ramesh chary Puppala,Medipally,9393303337,90,0.5
-Goutham Reddy,Medipally,9182810459,90,0.5
-Raj Kumar Sunil setu,Medipally,7995900498,90,0.5
-Prakash Harihara,Medipally,9700908872,90,0.5
-Kanjula Suguna Reddy,Medipally,,90,0.5
-Ambala Sravan,Medipally,9490555664,90,0.5
-Siddanth Javadeagam,Medipally,9966497214,90,0.5
-Tekula Mahinder Reddy,Medipally,9966651276,90,1
-Yadagiri Tenent,Medipally,,90,0.5
-Ravinder Buttumgari,Medipally,8106484037,90,0.5
-Shyam Rapaka,Medipally,7893267452,90,0.5
-Dayakar REddy p&T,Medipally,,90,0.5
-Venkanna G Panchavati,Medipally,,90,0.5
-RK Bro 203 VSR,Medipally,,90,0.5
-PVC SHEKAR,Medipally,,90,1`;
-     try {
-        await processAndImportCustomers(csvData);
-    } catch (error: any) {
-        alert("An error occurred while importing the sample data: " + error.message);
-        console.error(error);
-    } finally {
-        setIsSeeding(false);
-    }
-  }
-
-
   return (
     <div>
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
@@ -407,15 +344,42 @@ PVC SHEKAR,Medipally,,90,1`;
                 ) : (
                     <div className="text-center py-12 px-6">
                         <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-                        <p className="mt-1 text-sm text-gray-500">Get started by adding a customer or importing the provided sample data.</p>
-                        <div className="mt-4 flex justify-center items-center gap-4">
-                            <button onClick={openAddModal} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                        <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer or importing from a CSV file.</p>
+                        <div className="mt-4">
+                            <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
                                 <PlusIcon className="h-5 w-5 mr-2"/>
                                 Add Customer
                             </button>
-                             <button onClick={handleSeedData} disabled={isSeeding} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                {isSeeding ? 'Importing...' : 'Seed Sample Customers'}
+                        </div>
+                        <div className="mt-8 border-t pt-6">
+                            <button onClick={() => setShowHelp(!showHelp)} className="text-sm text-blue-600 hover:underline">
+                                Trouble seeing existing customers?
                             </button>
+                            {showHelp && (
+                                <div className="mt-4 p-4 bg-gray-50 rounded-lg text-left max-w-2xl mx-auto">
+                                    <p className="text-sm text-gray-700 mb-2">If you added customers before setting up user accounts, you may need to assign them to your user. Run the following SQL script in your Supabase project to fix this.</p>
+                                    <div className="relative">
+                                        <pre className="bg-gray-800 text-white p-4 rounded-md text-xs overflow-x-auto">
+                                            {migrationSql}
+                                        </pre>
+                                        <button onClick={handleCopySql} className="absolute top-2 right-2 flex items-center px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-500">
+                                            {copiedSql ? <CheckIcon className="h-4 w-4 mr-1 text-green-400" /> : <ClipboardIcon className="h-4 w-4 mr-1" />}
+                                            {copiedSql ? 'Copied!' : 'Copy Script'}
+                                        </button>
+                                    </div>
+                                    <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+                                        <a href={projectRef ? `https://supabase.com/dashboard/project/${projectRef}/sql/new` : 'https://supabase.com/dashboard'} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 text-sm">
+                                            Open Supabase SQL Editor
+                                        </a>
+                                        <button 
+                                            onClick={() => window.location.reload()}
+                                            className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 text-sm"
+                                        >
+                                            Refresh Page
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

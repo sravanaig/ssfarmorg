@@ -23,3 +23,17 @@ if (supabaseUrl === 'YOUR_SUPABASE_URL' || supabaseKey === 'YOUR_SUPABASE_ANON_K
 }
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+const getProjectRef = (url: string): string | null => {
+    try {
+        const urlObj = new URL(url);
+        const hostnameParts = urlObj.hostname.split('.');
+        if (hostnameParts.length >= 3 && hostnameParts[1] === 'supabase') {
+            return hostnameParts[0];
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+export const projectRef = getProjectRef(supabaseUrl);

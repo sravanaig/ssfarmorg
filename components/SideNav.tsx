@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon } from './Icons';
 
-type View = 'customers' | 'deliveries' | 'bills' | 'payments';
+type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms';
 
 interface SideNavProps {
   activeView: View;
@@ -50,6 +50,13 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen 
       
       <nav className="mt-10 space-y-2">
         <NavItem
+          view="dashboard"
+          label="Dashboard"
+          icon={<DashboardIcon className="h-5 w-5" />}
+          activeView={activeView}
+          onClick={() => handleSetView('dashboard')}
+        />
+        <NavItem
           view="customers"
           label="Customers"
           icon={<UsersIcon className="h-5 w-5" />}
@@ -77,6 +84,15 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen 
           activeView={activeView}
           onClick={() => handleSetView('payments')}
         />
+        <div className="pt-4 mt-4 border-t border-gray-200">
+           <NavItem
+              view="cms"
+              label="Website Content"
+              icon={<PencilIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('cms')}
+            />
+        </div>
       </nav>
     </aside>
   );

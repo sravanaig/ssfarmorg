@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { MilkIcon, ArrowLeftIcon } from './Icons';
 
@@ -10,15 +11,33 @@ interface LoginPageProps {
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    const [errors, setErrors] = useState<{ [key: string]: string }>({});
     const [successMessage, setSuccessMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSignUp, setIsSignUp] = useState(false);
 
+    const validate = (): boolean => {
+        const newErrors: { [key: string]: string } = {};
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            newErrors.email = "Please enter a valid email address.";
+        }
+        if (isSignUp && password.length < 6) {
+            newErrors.password = "Password must be at least 6 characters long.";
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError('');
+        setErrors({});
         setSuccessMessage('');
+
+        if (!validate()) {
+            return;
+        }
+        
         setIsLoading(true);
 
         if (isSignUp) {
@@ -27,12 +46,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }
                 setSuccessMessage('Sign up successful! Please check your email for a confirmation link, then you can log in.');
                 setIsSignUp(false); // Switch back to login view
             } else {
-                setError(result.error || 'An unknown error occurred during sign up.');
+                setErrors({ form: result.error || 'An unknown error occurred during sign up.' });
             }
         } else {
             const result = await onLogin(email, password);
             if (!result.success) {
-                setError(result.error || 'Invalid email or password.');
+                setErrors({ form: result.error || 'Invalid email or password.' });
             }
         }
         setIsLoading(false);
@@ -40,7 +59,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }
 
     const toggleMode = () => {
         setIsSignUp(!isSignUp);
-        setError('');
+        setErrors({});
         setSuccessMessage('');
         setEmail('');
         setPassword('');
@@ -59,13 +78,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }
                     <p className="text-gray-500">{isSignUp ? 'Set up your credentials' : 'Access your dashboard'}</p>
                 </div>
 
-                {error && (
+                {errors.form && (
                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                        <span className="block sm:inline">{error}</span>
+                        <span className="block sm:inline">{errors.form}</span>
                     </div>
                 )}
                 
-                {successMessage && !error && (
+                {successMessage && !errors.form && (
                     <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
                         <span className="block sm:inline">{successMessage}</span>
                     </div>
@@ -83,9 +102,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }
                                 required
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
-                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                className={`appearance-none block w-full px-3 py-2 border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
                             />
                         </div>
+                        {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
                     </div>
 
                     <div>
@@ -99,9 +119,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSignUp, onBackToHome }
                                 required
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                className={`appearance-none block w-full px-3 py-2 border ${errors.password ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
                             />
                         </div>
+                         {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
                     </div>
                     
                     <div>

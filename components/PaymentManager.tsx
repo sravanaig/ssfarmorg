@@ -18,21 +18,38 @@ const PaymentForm: React.FC<{
 }> = ({ onSubmit, onClose }) => {
     const [amount, setAmount] = useState(0);
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+    const validate = () => {
+        const newErrors: { [key: string]: string } = {};
+        if (amount <= 0) {
+            newErrors.amount = "Amount must be greater than zero.";
+        }
+        if (!date) {
+            newErrors.date = "A valid date is required.";
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ amount, date });
+        if (validate()) {
+            onSubmit({ amount, date });
+        }
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <div>
                 <label className="block text-sm font-medium text-gray-700">Amount</label>
-                <input type="number" step="0.01" value={amount} onChange={e => setAmount(parseFloat(e.target.value))} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(parseFloat(e.target.value))} required className={`mt-1 block w-full border ${errors.amount ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                {errors.amount && <p className="mt-1 text-xs text-red-600">{errors.amount}</p>}
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-700">Payment Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={`mt-1 block w-full border ${errors.date ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date}</p>}
             </div>
             <div className="flex justify-end pt-4 space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>

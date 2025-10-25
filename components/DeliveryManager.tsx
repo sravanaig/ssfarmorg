@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
+
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Customer, Delivery } from '../types';
 import { UploadIcon, DownloadIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
@@ -23,7 +24,14 @@ const downloadCSV = (csvContent: string, filename: string) => {
 
 const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<Map<number, number>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Clear pending changes when the date is changed
+    setPendingChanges(new Map());
+  }, [selectedDate]);
 
   const deliveriesForDate = useMemo(() => {
     const deliveryMap = new Map<number, number>();
@@ -35,58 +43,74 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     return deliveryMap;
   }, [deliveries, selectedDate]);
 
-  const handleQuantityChange = async (customerId: number, newQuantityStr: string) => {
+  const handleQuantityChange = (customerId: number, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
-    if (isNaN(newQuantity) || newQuantity < 0) return;
-
-    try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Not authenticated");
-        
-        // Find existing delivery to get its ID for local state updates
-        const existingDelivery = deliveries.find(d => d.customerId === customerId && d.date === selectedDate);
-
-        // Upsert logic: insert or update the record in the database
-        // Assumes a UNIQUE constraint on (customerId, date) in your Supabase table
-        const { data, error } = await supabase
-            .from('deliveries')
-            .upsert({
-                id: existingDelivery?.id, // Pass id for update, undefined for insert
-                customerId,
-                date: selectedDate,
-                quantity: newQuantity,
-                userId: user.id,
-            }, { onConflict: 'customerId,date' })
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        if (data) {
-             // Update local state optimistically
-            setDeliveries(prev => {
-                const updatedDelivery = data as Delivery;
-                const index = prev.findIndex(d => d.id === updatedDelivery.id);
-                if (index !== -1) {
-                    const updatedDeliveries = [...prev];
-                    updatedDeliveries[index] = updatedDelivery;
-                    return updatedDeliveries;
-                }
-                return [...prev, updatedDelivery];
-            });
-        }
-    } catch (error: any) {
-        alert(`Error: ${error.message}`);
+    
+    // An empty string in the input should be treated as 0
+    if (newQuantityStr === '') {
+        setPendingChanges(prev => new Map(prev).set(customerId, 0));
+        return;
     }
+    
+    if (isNaN(newQuantity) || newQuantity < 0) return;
+    setPendingChanges(prev => new Map(prev).set(customerId, newQuantity));
   };
   
-  const getCustomerDeliveryQuantity = (customerId: number) => {
+  const getDisplayQuantity = (customerId: number): number | string => {
+    if (pendingChanges.has(customerId)) {
+        const value = pendingChanges.get(customerId);
+        return value === 0 ? '' : value!; // Show empty string for 0 for better UX
+    }
+
     const deliveryQty = deliveriesForDate.get(customerId);
     if(deliveryQty !== undefined) return deliveryQty;
 
     const customer = customers.find(c => c.id === customerId);
     return customer ? customer.defaultQuantity : 0;
   }
+  
+  const handleSave = async () => {
+    if (pendingChanges.size === 0) {
+        alert("No changes to save.");
+        return;
+    }
+
+    setIsSaving(true);
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Not authenticated");
+
+        const deliveriesToUpsert = Array.from(pendingChanges.entries()).map(([customerId, quantity]) => ({
+            customerId,
+            date: selectedDate,
+            quantity,
+            userId: user.id,
+        }));
+
+        const { data, error } = await supabase
+            .from('deliveries')
+            .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
+            .select();
+
+        if (error) throw error;
+
+        if (data) {
+            setDeliveries(prev => {
+                const newDeliveriesMap = new Map(
+                    (data as Delivery[]).map(d => [`${d.customerId}-${d.date}`, d])
+                );
+                const otherDeliveries = prev.filter(d => !newDeliveriesMap.has(`${d.customerId}-${d.date}`));
+                return [...otherDeliveries, ...(data as Delivery[])];
+            });
+            setPendingChanges(new Map());
+        }
+    } catch (error: any) {
+        alert(`Error saving deliveries: ${error.message}`);
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
 
   const handleExport = () => {
     const customerMap = new Map(customers.map(c => [c.id, c.name]));
@@ -174,8 +198,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 if (data) {
                     setDeliveries(prev => {
                         const updatedDeliveriesMap = new Map(prev.map(d => [d.id, d]));
-                        // FIX: Type 'unknown' is not assignable to type 'number'.
-                        // The data from Supabase can be untyped. By casting the array to Delivery[],
+                        // Fix: The data from Supabase is not strongly typed. By casting the array to Delivery[],
                         // we ensure that `d.id` is correctly inferred as a number.
                         (data as Delivery[]).forEach((d) => {
                             updatedDeliveriesMap.set(d.id, d);
@@ -203,12 +226,29 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     };
     reader.readAsText(file);
   };
+  
+  const saveButtonText = isSaving 
+    ? 'Saving...' 
+    : `Save Changes ${pendingChanges.size > 0 ? `(${pendingChanges.size})` : ''}`;
 
   return (
     <div>
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-gray-800">Daily Deliveries</h2>
         <div className="flex items-center flex-wrap gap-2">
+            <input
+                id="delivery-date"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            />
+             <button onClick={handleSave} disabled={isSaving || pendingChanges.size === 0} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {saveButtonText}
+            </button>
+        </div>
+      </div>
+      <div className="flex items-center flex-wrap gap-2 mb-6">
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
             <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
                 <UploadIcon className="h-4 w-4 mr-2"/> Import
@@ -219,20 +259,12 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
                 Template
             </button>
-            <input
-                id="delivery-date"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
         </div>
-      </div>
       
       {customers.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {customers.map(customer => {
-                const quantity = getCustomerDeliveryQuantity(customer.id);
+                const quantity = getDisplayQuantity(customer.id);
                 return (
                     <div key={customer.id} className="bg-white shadow-md rounded-lg p-4 flex flex-col justify-between">
                         <div>
@@ -244,6 +276,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                             <input
                                 type="number"
                                 step="0.5"
+                                min="0"
+                                placeholder={String(customer.defaultQuantity)}
                                 value={quantity}
                                 onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
                                 className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"

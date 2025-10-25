@@ -1,5 +1,5 @@
 {
-  "name": "ssfatmorganic",
+  "name": "ssfarmorganic",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,7 +11,8 @@
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@supabase/supabase-js": "^2.44.4"
+    "@supabase/supabase-js": "^2.44.4",
+    "@google/genai": "^0.15.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

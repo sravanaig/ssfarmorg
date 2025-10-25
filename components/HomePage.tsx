@@ -1,117 +1,207 @@
-
 import React, { useState, useEffect } from 'react';
-import { MilkIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons';
-
-const slides = [
-  { title: "Fresh & Organic Milk", subtitle: "Delivered to your doorstep every morning.", color: "bg-blue-500" },
-  { title: "Pure Buffalo Milk", subtitle: "Rich, creamy, and full of nutrients.", color: "bg-indigo-500" },
-  { title: "Healthy Cow Milk", subtitle: "Light, nutritious, and easy to digest.", color: "bg-green-500" },
-  { title: "Homemade Paneer", subtitle: "Soft, delicious, and made from pure milk.", color: "bg-yellow-500" },
-  { title: "Subscribe & Save", subtitle: "Get regular deliveries and great discounts.", color: "bg-pink-500" },
-];
-
-const products = [
-    { name: "Buffalo Milk", description: "Our organic buffalo milk is thick, creamy, and perfect for making traditional sweets, yogurt, or just enjoying a wholesome glass.", image: "🥛" },
-    { name: "Cow Milk", description: "Sourced from grass-fed cows, our organic cow milk is a nutritious choice for the whole family, packed with calcium and vitamins.", image: "🐄" },
-    { name: "Paneer (Cottage Cheese)", description: "Made fresh daily from our pure milk, this organic paneer is soft and spongy, ideal for all your favorite dishes.", image: "🧀" },
-];
+import type { WebsiteContent } from '../types';
+import { MilkIcon, CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, MenuIcon, XIcon, QuoteIcon } from './Icons';
 
 interface HomePageProps {
-    onLoginClick: () => void;
+  content: WebsiteContent;
 }
 
-const HomePage: React.FC<HomePageProps> = ({ onLoginClick }) => {
+const HomePage: React.FC<HomePageProps> = ({ content }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
-
-  const nextSlide = () => {
-    setCurrentSlide(prev => (prev === slides.length - 1 ? 0 : prev + 1));
-  };
-
-  const prevSlide = () => {
-    setCurrentSlide(prev => (prev === 0 ? slides.length - 1 : prev - 1));
-  };
   
   useEffect(() => {
-    const slideInterval = setInterval(nextSlide, 5000);
+    const slideInterval = setInterval(() => {
+        setCurrentSlide(prevSlide => (prevSlide + 1) % content.heroSlides.length);
+    }, 5000); // Change slide every 5 seconds
+
     return () => clearInterval(slideInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [content.heroSlides.length]);
 
   return (
-    <div className="bg-gray-50 min-h-screen">
-      <header className="bg-white shadow-md sticky top-0 z-10">
-        <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-              <MilkIcon className="h-8 w-8 text-blue-600"/>
-              <a className="text-xl font-bold text-gray-800" href="#">ssfatmorganic</a>
-          </div>
-          <button onClick={onLoginClick} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-            Admin Login
-          </button>
-        </nav>
-      </header>
-
       <main>
-        {/* Hero Section */}
-        <section className="relative w-full h-96 text-white overflow-hidden">
-           <div className="w-full h-full flex transition-transform ease-out duration-500" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
-              {slides.map((slide, index) => (
-                  <div key={index} className={`w-full h-full flex-shrink-0 flex items-center justify-center text-center ${slide.color} p-4`}>
-                      <div>
-                          <h1 className="text-4xl md:text-5xl font-bold">{slide.title}</h1>
-                          <p className="mt-2 text-lg md:text-xl">{slide.subtitle}</p>
-                      </div>
-                  </div>
-              ))}
-           </div>
-           
-           <button onClick={prevSlide} className="absolute top-1/2 left-4 transform -translate-y-1/2 bg-black bg-opacity-50 p-2 rounded-full focus:outline-none">
-              <ChevronLeftIcon className="h-6 w-6"/>
-           </button>
-           <button onClick={nextSlide} className="absolute top-1/2 right-4 transform -translate-y-1/2 bg-black bg-opacity-50 p-2 rounded-full focus:outline-none">
-              <ChevronRightIcon className="h-6 w-6"/>
-           </button>
-
-           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-2">
-                {slides.map((_, index) => (
-                    <button key={index} onClick={() => setCurrentSlide(index)} className={`w-3 h-3 rounded-full ${currentSlide === index ? 'bg-white' : 'bg-white/50'}`}></button>
+        {/* Hero Banner Slider */}
+        <section className="relative h-[60vh] w-full overflow-hidden text-white">
+            <div
+                className="flex transition-transform duration-700 ease-in-out h-full"
+                style={{ transform: `translateX(-${currentSlide * 100}%)` }}
+            >
+                {content.heroSlides.map((slide, index) => (
+                    <div 
+                        key={index} 
+                        className="w-full flex-shrink-0 h-full bg-cover bg-center relative"
+                        style={{ backgroundImage: `url(${slide.image})` }}
+                    >
+                        <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center text-center p-4">
+                            <div className="container mx-auto px-6">
+                                <h1 className="text-4xl md:text-5xl font-extrabold leading-tight">
+                                    {slide.title}
+                                </h1>
+                                <p className="mt-4 text-lg text-gray-200 max-w-2xl mx-auto">
+                                    {slide.subtitle}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 ))}
-           </div>
+            </div>
+            <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex space-x-2 z-10">
+                {content.heroSlides.map((_, index) => (
+                    <button
+                        key={index}
+                        onClick={() => setCurrentSlide(index)}
+                        className={`w-3 h-3 rounded-full transition-colors ${currentSlide === index ? 'bg-white' : 'bg-gray-300 bg-opacity-50 hover:bg-gray-200'}`}
+                        aria-label={`Go to slide ${index + 1}`}
+                    ></button>
+                ))}
+            </div>
+        </section>
+        
+        {/* Our Story Section */}
+        <section id="about" className="py-20 bg-gray-50">
+            <div className="container mx-auto px-6 text-center">
+                <h2 className="text-3xl font-bold text-gray-800 mb-16">{content.ourStory.title}</h2>
+                <div className="relative max-w-5xl mx-auto">
+                    {/* Connecting line for desktop */}
+                    <div className="absolute top-10 left-0 w-full h-0.5 bg-gray-200 hidden md:block" aria-hidden="true"></div>
+
+                    <div className="grid md:grid-cols-4 gap-8 relative">
+                        {content.ourStory.steps.map((step, index) => {
+                           const icons = [
+                                <HeartIcon className="h-10 w-10" />,
+                                <UsersIcon className="h-10 w-10" />,
+                                <BarnIcon className="h-10 w-10" />,
+                                <TruckIcon className="h-10 w-10" />
+                            ];
+                            const colors = ['bg-blue-100 text-blue-600', 'bg-green-100 text-green-600', 'bg-yellow-100 text-yellow-600', 'bg-purple-100 text-purple-600'];
+                           return (
+                             <div key={index} className="flex flex-col items-center p-4">
+                                <div className={`flex items-center justify-center h-20 w-20 rounded-full mx-auto mb-4 z-10 border-4 border-gray-50 ${colors[index % colors.length]}`}>
+                                    {icons[index % icons.length]}
+                                </div>
+                                <h4 className="font-semibold text-lg mb-2">{step.title}</h4>
+                                <p className="text-gray-600 text-sm">{step.text}</p>
+                            </div>
+                           );
+                        })}
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {/* About Our Dairy Farm Section */}
+        <section className="py-16 bg-green-50">
+            <div className="container mx-auto px-6">
+                <div className="grid md:grid-cols-2 gap-12 items-center">
+                    <div className="text-center md:text-left">
+                        <span className="text-6xl"></span>
+                        <h2 className="text-3xl font-bold text-gray-800 mt-2 mb-4">{content.dairyFarm.title}</h2>
+                        <p className="text-gray-600">
+                           {content.dairyFarm.text}
+                        </p>
+                    </div>
+                    <div>
+                         <img src="https://risingnepaldaily.com/storage/media/26906/murra-1.jpg" alt="Our healthy buffaloes at the dairy farm" className="rounded-lg shadow-lg"/>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {/* Why Choose Us Section */}
+        <section className="py-16">
+          <div className="container mx-auto px-6">
+            <div className="text-center mb-12">
+                <h2 className="text-3xl font-bold text-gray-800">{content.whyChooseUs.title}</h2>
+                <p className="mt-2 text-gray-600">{content.whyChooseUs.subtitle}</p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+                {content.whyChooseUs.features.map((feature, index) => {
+                    const icons = [
+                        <CheckIcon className="h-8 w-8" />,
+                        <TruckIcon className="h-8 w-8" />,
+                        <DashboardIcon className="h-8 w-8" />,
+                        <UsersIcon className="h-8 w-8" />
+                    ];
+                    const colors = ['bg-blue-100 text-blue-600', 'bg-green-100 text-green-600', 'bg-yellow-100 text-yellow-600', 'bg-purple-100 text-purple-600'];
+                    return (
+                        <div key={index} className="text-center p-4">
+                            <div className={`flex items-center justify-center h-16 w-16 rounded-full mx-auto mb-4 ${colors[index % colors.length]}`}>
+                                {icons[index % icons.length]}
+                            </div>
+                            <h4 className="font-semibold text-lg">{feature.title}</h4>
+                            <p className="text-gray-600">{feature.text}</p>
+                        </div>
+                    );
+                })}
+            </div>
+          </div>
         </section>
 
         {/* Products Section */}
-        <section className="py-12 md:py-20 bg-white">
-          <div className="container mx-auto px-6">
-            <h2 className="text-3xl font-bold text-center text-gray-800 mb-8">Our Organic Products</h2>
+        <section id="products" className="py-16 bg-gray-50">
+          <div className="container mx-auto px-6 text-center">
+            <h2 className="text-3xl font-bold text-gray-800">{content.productsSection.title}</h2>
+            <p className="mt-2 text-gray-600 mb-12">{content.productsSection.subtitle}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {products.map(product => (
-                    <div key={product.name} className="bg-gray-50 rounded-lg shadow-lg p-6 text-center hover:shadow-xl transition-shadow">
-                        <div className="text-6xl mb-4">{product.image}</div>
-                        <h3 className="text-xl font-semibold text-gray-800 mb-2">{product.name}</h3>
-                        <p className="text-gray-600">{product.description}</p>
+                <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
+                  <div className="text-5xl mb-4">🥛</div>
+                  <h3 className="text-xl font-bold mb-2">Pure Buffalo Milk</h3>
+                  <p className="text-gray-600">Rich and creamy, delivered fresh from our farm to your door.</p>
+                </div>
+                <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
+                  <div className="text-5xl mb-4">🐄</div>
+                  <h3 className="text-xl font-bold mb-2">Fresh Cow Milk</h3>
+                  <p className="text-gray-600">Nutritious and wholesome, perfect for the entire family.</p>
+                </div>
+                 <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
+                  <div className="text-5xl mb-4">🧀</div>
+                  <h3 className="text-xl font-bold mb-2">Homemade Paneer</h3>
+                  <p className="text-gray-600">Soft and delicious, made from our 100% organic milk.</p>
+                </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Testimonials Section */}
+        <section id="testimonials" className="py-16 bg-white">
+          <div className="container mx-auto px-6 text-center">
+            <h2 className="text-3xl font-bold text-gray-800">{content.testimonials.title}</h2>
+            <p className="mt-2 text-gray-600 mb-12">{content.testimonials.subtitle}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {content.testimonials.list.map((testimonial, index) => (
+                  <div key={index} className="bg-gray-50 p-8 rounded-lg shadow-sm text-left relative">
+                    <QuoteIcon className="absolute top-4 left-4 h-8 w-8 text-gray-200" />
+                    <p className="text-gray-600 italic mt-8 mb-4">"{testimonial.quote}"</p>
+                    <div className="flex items-center">
+                      <img src={`https://ui-avatars.com/api/?name=${testimonial.name.replace(' ', '+')}&background=e0f2fe&color=0284c7`} alt="Customer avatar" className="w-12 h-12 rounded-full mr-4" />
+                      <div>
+                        <p className="font-semibold text-gray-800">{testimonial.name}</p>
+                        <p className="text-sm text-gray-500">{testimonial.role}</p>
+                      </div>
                     </div>
-                ))}
+                  </div>
+              ))}
             </div>
           </div>
         </section>
         
-        {/* About Section */}
-        <section className="py-12 md:py-20 bg-gray-50">
-           <div className="container mx-auto px-6 text-center">
-             <h2 className="text-3xl font-bold text-gray-800 mb-4">Why Choose Us?</h2>
-             <p className="text-gray-600 max-w-3xl mx-auto">
-               We are committed to providing the freshest, purest, and most delicious dairy products. Our milk comes from happy, healthy animals that are raised ethically without any hormones or antibiotics. We believe in organic farming practices to bring you and your family the best nature has to offer.
-             </p>
-           </div>
+        {/* Meet our Founders */}
+        <section id="team" className="py-16 bg-gray-50">
+            <div className="container mx-auto px-6 text-center">
+                <h2 className="text-3xl font-bold text-gray-800">{content.founders.title}</h2>
+                <p className="mt-2 text-gray-600 mb-12">{content.founders.subtitle}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+                    {content.founders.list.map((founder, index) => (
+                         <div key={index} className="bg-white p-8 rounded-lg shadow-sm">
+                            <img src={`https://ui-avatars.com/api/?name=${founder.name.replace(' ', '+')}&background=dbeafe&color=2563eb&size=96`} alt={`Founder ${founder.name}`} className="w-24 h-24 rounded-full mx-auto mb-4" />
+                            <h3 className="text-xl font-bold">{founder.name}</h3>
+                            <p className="text-blue-600 font-semibold mb-2">{founder.title}</p>
+                            <p className="text-gray-600">{founder.bio}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </section>
       </main>
-
-      <footer className="bg-gray-800 text-white py-4">
-        <div className="container mx-auto px-6 text-center">
-          <p>&copy; {new Date().getFullYear()} ssfatmorganic. All rights reserved.</p>
-        </div>
-      </footer>
-    </div>
   );
 };
 
