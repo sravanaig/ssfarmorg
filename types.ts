@@ -17,12 +17,40 @@ export interface Delivery {
   userId?: string;
 }
 
+export interface Order {
+  id: number;
+  customerId: string; // YYYY-MM-DD
+  date: string;
+  quantity: number;
+  userId?: string;
+}
+
 export interface Payment {
   id: number;
   customerId: string; // YYYY-MM-DD
   date: string;
   amount: number;
   userId?: string;
+}
+
+export interface PendingDelivery {
+  id: number;
+  customerId: string;
+  date: string;
+  quantity: number;
+  userId?: string;
+}
+
+export interface Profile {
+  id: string;
+  role: 'admin' | 'staff';
+}
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  role: 'admin' | 'staff';
+  created_at: string;
 }
 
 export interface WebsiteContent {

@@ -42,13 +42,209 @@ const CollapsibleSQLSection: React.FC<{ title: string; children: React.ReactNode
 };
 
 const DatabaseHelper: React.FC<DatabaseHelperProps> = ({ projectRef, errorMessage }) => {
-    const fullSetupSql = `-- This script sets up your database for multi-user support and the CMS.
--- It's safe to run multiple times. It creates tables if they don't exist and applies security policies.
+    const fullSetupSql = `-- This robust script sets up your database, enables role-based access, and fixes common errors.
+-- It is idempotent, meaning it is safe to run this script multiple times.
 
--- STEP 1: Create all required tables if they don't already exist.
--- This version uses UUID for customer IDs to match Supabase standards and prevent type errors.
+-- STEP 1: Grant necessary schema permissions to Supabase's roles.
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON SCHEMA public TO postgres;
 
--- Creates the 'customers' table.
+-- STEP 2: Create a 'profiles' table to store user roles.
+-- This table links to auth users and defaults new users to the 'staff' role.
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    role text NOT NULL DEFAULT 'staff' CHECK (role IN ('admin', 'staff'))
+);
+
+-- STEP 3: Create a helper function to securely get the current user's role.
+-- Using 'SECURITY DEFINER' allows this function to bypass RLS policies on the 'profiles' table,
+-- which prevents an infinite recursion error when policies on that same table call this function.
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT role
+    FROM public.profiles
+    WHERE id = auth.uid()
+  );
+END;
+$$;
+-- Grant permission for any logged-in user to call this function.
+GRANT EXECUTE ON FUNCTION get_my_role() TO authenticated;
+
+
+-- STEP 4: Apply Row Level Security (RLS) to the 'profiles' table.
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+
+-- Clean slate: drop any existing policies on the profiles table to avoid conflicts.
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can manage all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Profile Read Access" ON public.profiles;
+DROP POLICY IF EXISTS "Profile Write Access" ON public.profiles;
+DROP POLICY IF EXISTS "Authenticated users can read profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can write to profiles" ON public.profiles;
+
+
+-- POLICY FOR READING (SELECT):
+-- Allow any authenticated user to read from the profiles table.
+-- This is a simpler and more robust approach to prevent recursion errors,
+-- as role information is not highly sensitive in this application's context.
+CREATE POLICY "Authenticated users can read profiles" ON public.profiles FOR SELECT
+  USING ( auth.role() = 'authenticated' );
+
+-- POLICY FOR WRITING (INSERT, UPDATE, DELETE):
+-- Only admins can write to the profiles table.
+-- This check uses the get_my_role() function which will now succeed
+-- because its internal SELECT is permitted by the broad read policy above.
+CREATE POLICY "Admins can write to profiles" ON public.profiles FOR ALL
+  USING ( get_my_role() = 'admin' )
+  WITH CHECK ( get_my_role() = 'admin' );
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+
+-- STEP 5: Create a trigger to automatically create a profile when a new user signs up.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, role)
+  VALUES (new.id, 'staff');
+  RETURN new;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+
+-- STEP 6: (NEW) Create secure functions for admins to manage users.
+-- These are necessary because client-side code cannot access 'auth.users' directly.
+
+-- Function to get all users, callable by admins only.
+CREATE OR REPLACE FUNCTION get_all_users()
+RETURNS TABLE (
+    id uuid,
+    email text,
+    role text,
+    created_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- Security check: ensure the current user is an admin before proceeding.
+    IF get_my_role() != 'admin' THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    -- If the security check passes, return the user data.
+    RETURN QUERY
+    SELECT
+        u.id,
+        u.email::text,
+        COALESCE(p.role, 'staff'), -- Fix: Use COALESCE to handle cases where a profile might be missing for a user.
+        u.created_at
+    FROM auth.users u
+    LEFT JOIN public.profiles p ON u.id = p.id;
+END;
+$$;
+
+-- Grant permission for authenticated users to call this function.
+-- The internal security check will handle authorization.
+GRANT EXECUTE ON FUNCTION get_all_users() TO authenticated;
+
+
+-- Function to delete a user, callable by admins only.
+CREATE OR REPLACE FUNCTION delete_user_by_id(target_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- Security check: ensure the current user is an admin.
+    IF get_my_role() != 'admin' THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+    
+    -- Security check: prevent an admin from deleting themselves.
+    IF auth.uid() = target_user_id THEN
+        RAISE EXCEPTION 'Admins cannot delete their own account';
+    END IF;
+
+    -- Delete the user from the auth schema.
+    -- The profile row will be deleted automatically due to the ON DELETE CASCADE constraint.
+    PERFORM auth.admin_delete_user(target_user_id);
+END;
+$$;
+
+-- Grant permission for authenticated users to call this function.
+-- The internal check will handle authorization.
+GRANT EXECUTE ON FUNCTION delete_user_by_id(target_user_id uuid) TO authenticated;
+
+-- Function to create a new user, callable by admins only.
+CREATE OR REPLACE FUNCTION create_new_user(
+    p_email text,
+    p_password text,
+    p_role text
+)
+RETURNS TABLE (
+    id uuid,
+    email text,
+    role text,
+    created_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    new_user_id uuid;
+BEGIN
+    -- Security check: ensure the current user is an admin.
+    IF get_my_role() != 'admin' THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    -- Create the user in the auth schema. This bypasses email confirmation.
+    SELECT auth.admin_create_user(
+        email := p_email,
+        password := p_password
+    ) INTO new_user_id;
+
+    -- Set the role for the new user in the profiles table.
+    -- The handle_new_user trigger will have already inserted a row with 'staff' role.
+    -- We just need to update it if a different role is specified.
+    UPDATE public.profiles
+    SET role = p_role
+    WHERE id = new_user_id;
+
+    -- Return the details of the newly created user.
+    RETURN QUERY
+    SELECT u.id, u.email::text, p.role, u.created_at
+    FROM auth.users u
+    JOIN public.profiles p ON u.id = p.id
+    WHERE u.id = new_user_id;
+END;
+$$;
+
+-- Grant permission for authenticated users to call this function.
+-- The internal security check will handle authorization.
+GRANT EXECUTE ON FUNCTION create_new_user(text, text, text) TO authenticated;
+
+
+-- STEP 7: Create all other application tables if they don't already exist.
 CREATE TABLE IF NOT EXISTS public.customers (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name text NOT NULL,
@@ -56,30 +252,43 @@ CREATE TABLE IF NOT EXISTS public.customers (
     phone text NOT NULL,
     "milkPrice" real NOT NULL,
     "defaultQuantity" real NOT NULL DEFAULT 1,
-    status text NOT NULL DEFAULT 'active',
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive'))
 );
 
--- Creates the 'deliveries' table.
+CREATE TABLE IF NOT EXISTS public.orders (
+    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+    date date NOT NULL,
+    quantity real NOT NULL,
+    CONSTRAINT orders_customer_id_date_key UNIQUE ("customerId", date)
+);
+
 CREATE TABLE IF NOT EXISTS public.deliveries (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
     date date NOT NULL,
     quantity real NOT NULL,
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
     CONSTRAINT deliveries_customer_id_date_key UNIQUE ("customerId", date)
 );
 
--- Creates the 'payments' table.
+-- NEW: Table for delivery submissions awaiting admin approval
+CREATE TABLE IF NOT EXISTS public.pending_deliveries (
+    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+    date date NOT NULL,
+    quantity real NOT NULL,
+    "userId" uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
+    CONSTRAINT pending_deliveries_customer_id_date_key UNIQUE ("customerId", date)
+);
+
+
 CREATE TABLE IF NOT EXISTS public.payments (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
     date date NOT NULL,
-    amount real NOT NULL,
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
+    amount real NOT NULL
 );
 
--- Creates the 'website_content' table.
 CREATE TABLE IF NOT EXISTS public.website_content (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     content jsonb NOT NULL,
@@ -87,123 +296,142 @@ CREATE TABLE IF NOT EXISTS public.website_content (
 );
 
 
--- STEP 2: Enable Row Level Security (RLS) on all tables.
+-- STEP 8: Apply RLS policies to all data tables.
+-- Disabling and re-enabling RLS ensures policies are applied correctly.
+
+-- Customers Table Policies
+ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can manage all customers" ON public.customers;
+CREATE POLICY "Admins can manage all customers" ON public.customers FOR ALL
+  USING (get_my_role() = 'admin')
+  WITH CHECK (get_my_role() = 'admin');
+
+DROP POLICY IF EXISTS "Staff can view all customers" ON public.customers;
+CREATE POLICY "Staff can view all customers" ON public.customers FOR SELECT
+  USING (get_my_role() IN ('admin', 'staff'));
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+
+-- Orders Table Policies
+ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Staff and Admins can manage orders" ON public.orders;
+CREATE POLICY "Staff and Admins can manage orders" ON public.orders FOR ALL
+  USING (get_my_role() IN ('admin', 'staff'))
+  WITH CHECK (get_my_role() IN ('admin', 'staff'));
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+
+-- Deliveries Table Policies (MODIFIED: Only Admins can manage final deliveries)
+ALTER TABLE public.deliveries DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can manage deliveries" ON public.deliveries;
+CREATE POLICY "Admins can manage deliveries" ON public.deliveries FOR ALL
+  USING (get_my_role() = 'admin')
+  WITH CHECK (get_my_role() = 'admin');
+  
+DROP POLICY IF EXISTS "Authenticated users can view deliveries" ON public.deliveries;
+CREATE POLICY "Authenticated users can view deliveries" ON public.deliveries FOR SELECT
+  USING (get_my_role() IN ('admin', 'staff'));
 ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
+
+-- Pending Deliveries Table Policies (NEW)
+ALTER TABLE public.pending_deliveries DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Staff and Admins can manage pending deliveries" ON public.pending_deliveries;
+CREATE POLICY "Staff and Admins can manage pending deliveries" ON public.pending_deliveries FOR ALL
+  USING (get_my_role() IN ('admin', 'staff'))
+  WITH CHECK (get_my_role() IN ('admin', 'staff'));
+ALTER TABLE public.pending_deliveries ENABLE ROW LEVEL SECURITY;
+
+-- Payments Table Policies
+ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can manage all payments" ON public.payments;
+CREATE POLICY "Admins can manage all payments" ON public.payments FOR ALL
+  USING (get_my_role() = 'admin')
+  WITH CHECK (get_my_role() = 'admin');
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
--- STEP 3: Create policies for users to manage their OWN data.
-DROP POLICY IF EXISTS "Users can manage their own customers" ON public.customers;
-CREATE POLICY "Users can manage their own customers" ON public.customers FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
+-- Website Content Table Policies
+ALTER TABLE public.website_content DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can manage website content" ON public.website_content;
+CREATE POLICY "Admins can manage website content" ON public.website_content FOR ALL
+  USING (get_my_role() = 'admin')
+  WITH CHECK (get_my_role() = 'admin');
 
-DROP POLICY IF EXISTS "Users can manage their own deliveries" ON public.deliveries;
-CREATE POLICY "Users can manage their own deliveries" ON public.deliveries FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
-DROP POLICY IF EXISTS "Users can manage their own payments" ON public.payments;
-CREATE POLICY "Users can manage their own payments" ON public.payments FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
-DROP POLICY IF EXISTS "Users can manage their own website content" ON public.website_content;
-CREATE POLICY "Users can manage their own website content" ON public.website_content FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
--- STEP 4: Create policy to allow PUBLIC read access to website content.
 DROP POLICY IF EXISTS "Public can read website content" ON public.website_content;
 CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
+ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
--- STEP 5 (Optional): Assign existing data to your user (if you had data before user accounts).
-UPDATE public.customers SET "userId" = auth.uid() WHERE "userId" IS NULL;
-UPDATE public.deliveries SET "userId" = auth.uid() WHERE "userId" IS NULL;
-UPDATE public.payments SET "userId" = auth.uid() WHERE "userId" IS NULL;
+-- Script finished. All tables and policies are now correctly configured.
 `;
 
-    const hardResetSql = `-- DANGER: THIS SCRIPT PERMANENTLY DELETES ALL CUSTOMER AND DELIVERY DATA.
--- This is intended to fix major schema errors.
+    const hardResetSql = `-- DANGER: THIS SCRIPT PERMANENTLY DELETES ALL DATA.
 -- There is no undo. Please be certain before running this.
 
+DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS public.payments CASCADE;
+DROP TABLE IF EXISTS public.pending_deliveries CASCADE;
 DROP TABLE IF EXISTS public.deliveries CASCADE;
+DROP TABLE IF EXISTS public.orders CASCADE;
 DROP TABLE IF EXISTS public.customers CASCADE;
 DROP TABLE IF EXISTS public.website_content CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+DROP FUNCTION IF EXISTS public.get_my_role();
+DROP FUNCTION IF EXISTS public.get_all_users();
+DROP FUNCTION IF EXISTS public.delete_user_by_id(target_user_id uuid);
+DROP FUNCTION IF EXISTS public.create_new_user(p_email text, p_password text, p_role text);
 
--- After running this, you MUST run the 'Full Setup Script' below to recreate the tables.
-`;
 
-    const customersSql = `-- Creates the 'customers' table using UUID for the primary key.
-CREATE TABLE IF NOT EXISTS public.customers (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name text NOT NULL,
-    address text NOT NULL,
-    phone text NOT NULL,
-    "milkPrice" real NOT NULL,
-    "defaultQuantity" real NOT NULL DEFAULT 1,
-    status text NOT NULL DEFAULT 'active',
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
-);`;
-    
-    const deliveriesSql = `-- Creates the 'deliveries' table, referencing the customer's UUID.
-CREATE TABLE IF NOT EXISTS public.deliveries (
-    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
-    date date NOT NULL,
-    quantity real NOT NULL,
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
-    CONSTRAINT deliveries_customer_id_date_key UNIQUE ("customerId", date)
-);`;
-
-    const paymentsSql = `-- Creates the 'payments' table, referencing the customer's UUID.
-CREATE TABLE IF NOT EXISTS public.payments (
-    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
-    date date NOT NULL,
-    amount real NOT NULL,
-    "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
-);`;
-
-    const contentSql = `-- Creates the 'website_content' table for the CMS.
-CREATE TABLE IF NOT EXISTS public.website_content (
-    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    content jsonb NOT NULL,
-    "userId" uuid UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
-);`;
-
-    const policiesSql = `-- These policies enable Row Level Security (RLS) to protect your data.
--- RLS ensures that each user can only see and manage their own information.
--- It's a critical security feature for multi-user applications.
-
--- Enable RLS on all tables
-ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
-
--- Policy: Allow users to manage their own customers.
-DROP POLICY IF EXISTS "Users can manage their own customers" ON public.customers;
-CREATE POLICY "Users can manage their own customers" ON public.customers FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
--- Policy: Allow users to manage their own deliveries.
-DROP POLICY IF EXISTS "Users can manage their own deliveries" ON public.deliveries;
-CREATE POLICY "Users can manage their own deliveries" ON public.deliveries FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
--- Policy: Allow website visitors (public) to read website content.
-DROP POLICY IF EXISTS "Public can read website content" ON public.website_content;
-CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
+-- After running this, you MUST run the 'Full Setup Script' to recreate the tables.
 `;
 
     return (
         <div className="bg-white border border-red-200 shadow-lg rounded-lg p-6 max-w-4xl mx-auto" role="alert">
-            <h2 className="text-2xl font-bold text-red-600">Action Required: Database Setup & Repair</h2>
+            <h2 className="text-2xl font-bold text-red-600">Action Required: Database Fix</h2>
             <div className="mt-4 text-gray-700 space-y-4">
-                <p>To secure your data, enable all features, and ensure your website is public, your database schema needs to be up-to-date. This tool helps you fix common database problems.</p>
-                {errorMessage && <p className="font-semibold text-red-500">{errorMessage}</p>}
+                 <p>An error related to your database setup was detected. This usually happens when your user account is missing its profile and role, or has the wrong role assigned.</p>
+                 <p className="mt-2">To fix this, please carefully follow all the steps below.</p>
+                {errorMessage && (
+                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                        <p className="font-semibold text-red-700">Specific Error Message:</p>
+                        <p className="text-red-600 text-sm mt-1">{errorMessage}</p>
+                    </div>
+                )}
                 
-                <div className="mt-4 p-4 border-l-4 border-blue-400 bg-blue-50">
+                <div className="mt-4 p-4 border-l-4 border-blue-400 bg-blue-50 space-y-2">
                     <h4 className="font-bold text-blue-800">Instructions</h4>
-                    <p className="text-blue-700 mt-1">
-                        Run the **"Full Setup Script"** in your Supabase SQL Editor. This single script will create all necessary tables with the correct structure and apply security rules. It is safe to run multiple times.
-                    </p>
-                    <p className="text-blue-700 mt-2">
-                        If you have critical errors and want to start fresh, you can run the **"Hard Reset Script"** first to delete all existing data, and then run the Full Setup Script.
-                    </p>
+                    <p className="text-blue-700"><strong>Step 1:</strong> Click the button below to open your Supabase SQL Editor in a new tab.</p>
+                    <p className="text-blue-700"><strong>Step 2:</strong> Copy the **"Full Setup &amp; Definitive Fix Script"** below and paste it into the SQL Editor. Click **"RUN"**. This script is safe to run multiple times and will ensure your database schema is correct.</p>
+                     <div className="p-3 my-2 border border-blue-200 bg-blue-100 rounded-md">
+                        <p className="text-blue-800 font-bold">Step 3 (CRITICAL): Set Your Role to 'admin'</p>
+                        <p className="text-blue-700 mt-1">Your user account must have an associated profile with the role set to 'admin'. If you just signed up, your role was automatically set to 'staff' and needs to be updated.</p>
+                        <p className="text-blue-700 mt-1"><em>Note: The application doesn't use a hardcoded admin email. Any user can be an admin as long as their role is set correctly here.</em></p>
+                        <ol className="list-decimal pl-6 text-blue-700 space-y-2 mt-2">
+                            <li>
+                                <strong>Find Your User ID:</strong>
+                                <ul className="list-disc pl-5 mt-1 space-y-1">
+                                    <li>In your Supabase project, go to the <strong>Authentication</strong> section.</li>
+                                    <li>Under the <strong>Users</strong> tab, find your email address.</li>
+                                    <li>Click the "Copy UID" button next to your user to copy your User ID.</li>
+                                </ul>
+                            </li>
+                            <li>
+                                <strong>Go to the `profiles` Table:</strong>
+                                <ul className="list-disc pl-5 mt-1 space-y-1">
+                                    <li>In Supabase, go to the <strong>Table Editor</strong> section (it looks like a table icon).</li>
+                                    <li>Click on the `profiles` table in the list on the left.</li>
+                                </ul>
+                            </li>
+                            <li>
+                                <strong>Find Your Profile and Set Role to 'admin':</strong>
+                                <ul className="list-disc pl-5 mt-1 space-y-1">
+                                    <li>Look for the row where the `id` column matches the User ID you copied.</li>
+                                    <li><strong>If a row for your user exists:</strong> The `role` column likely says 'staff'. Double-click this cell, change the text to <strong>admin</strong>, and click the <strong>Save</strong> button (usually at the bottom or top of the editor).</li>
+                                    <li><strong>If no row for your user exists:</strong> Click the green <strong>"+ Insert row"</strong> button. Paste your User ID into the `id` field, type <strong>admin</strong> into the `role` field, and click <strong>Save</strong>.</li>
+                                </ul>
+                            </li>
+                            <li>
+                                <strong>Verify:</strong> You should now see one row for your User ID in the `profiles` table, and its `role` must be 'admin'. If so, the problem is fixed.
+                            </li>
+                        </ol>
+                     </div>
+                    <p className="text-blue-700"><strong>Step 4:</strong> Come back to this page and click the "Refresh Page" button below, or simply log out and log back in.</p>
                 </div>
                 
                 <a href={projectRef ? `https://supabase.com/dashboard/project/${projectRef}/sql/new` : 'https://supabase.com/dashboard'} target="_blank" rel="noopener noreferrer" className="inline-block px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition-transform transform hover:scale-105">
@@ -211,49 +439,23 @@ CREATE POLICY "Public can read website content" ON public.website_content FOR SE
                 </a>
 
                 <div className="space-y-6 pt-4">
-                     <CollapsibleSQLSection title="☢️ Step 1: Hard Reset Script (Deletes Data)">
-                        {hardResetSql}
-                    </CollapsibleSQLSection>
-
-                    <CollapsibleSQLSection title="✅ Step 2: Full Setup Script" defaultOpen={true}>
+                    <CollapsibleSQLSection title="✅ Full Setup & Definitive Fix Script (Run This)" defaultOpen={true}>
                         {fullSetupSql}
                     </CollapsibleSQLSection>
 
-                    <h3 className="text-xl font-bold text-gray-800 pt-4 border-t">Detailed Breakdown</h3>
-                    <p className="text-sm text-gray-600 -mt-4">For your reference, here is the specific SQL for each part of the database. The two-step process above is the recommended way to fix errors.</p>
-                    
-                    <CollapsibleSQLSection title="Customers Table SQL">
-                        {customersSql}
-                    </CollapsibleSQLSection>
-
-                    <CollapsibleSQLSection title="Deliveries Table SQL">
-                        {deliveriesSql}
-                    </CollapsibleSQLSection>
-
-                    <CollapsibleSQLSection title="Payments Table SQL">
-                        {paymentsSql}
-                    </CollapsibleSQLSection>
-                    
-                    <CollapsibleSQLSection title="Website Content Table SQL">
-                        {contentSql}
-                    </CollapsibleSQLSection>
-
-                    <CollapsibleSQLSection title="Security Policies Explained">
-                        {policiesSql}
+                    <CollapsibleSQLSection title="☢️ Hard Reset Script (Optional, Deletes All Data)">
+                        {hardResetSql}
                     </CollapsibleSQLSection>
                 </div>
 
                 <div className="mt-8 border-t pt-6 text-center">
-                    <p className="text-gray-600 font-medium">After running the SQL scripts, come back and click here:</p>
+                    <p className="text-gray-600 font-medium">After completing all steps, click here:</p>
                     <button 
                         onClick={() => window.location.reload()}
                         className="mt-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 transition-transform transform hover:scale-105"
                     >
                         I've updated my database, Refresh Page
                     </button>
-                </div>
-                 <div className="mt-6 text-xs text-gray-500 text-center">
-                    <p><strong>Troubleshooting:</strong> The scripts are safe to run multiple times. If you see notices like "column already exists" or "policy does not exist", that's perfectly normal.</p>
                 </div>
             </div>
         </div>

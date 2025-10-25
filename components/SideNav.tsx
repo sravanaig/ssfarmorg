@@ -1,15 +1,15 @@
-
-
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon } from './Icons';
+import type { Profile } from '../types';
 
-type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins';
 
 interface SideNavProps {
   activeView: View;
   setView: (view: View) => void;
   isOpen: boolean;
   setOpen: (isOpen: boolean) => void;
+  userRole: Profile['role'] | null;
 }
 
 const NavItem: React.FC<{
@@ -32,7 +32,7 @@ const NavItem: React.FC<{
   </button>
 );
 
-const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen }) => {
+const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen, userRole }) => {
     const handleSetView = (view: View) => {
         setView(view);
         setOpen(false);
@@ -42,7 +42,7 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen 
         <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
                 <MilkIcon className="h-8 w-8 text-blue-600"/>
-                <span className="text-xl font-bold text-gray-800">ssfatmorganic</span>
+                <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
             </div>
             <button onClick={() => setOpen(false)} className="text-gray-500 lg:hidden">
                 <XIcon className="h-6 w-6"/>
@@ -50,57 +50,88 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen 
         </div>
       
       <nav className="mt-10 space-y-2">
-        <NavItem
-          view="dashboard"
-          label="Dashboard"
-          icon={<DashboardIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('dashboard')}
-        />
-        <NavItem
-          view="customers"
-          label="Customers"
-          icon={<UsersIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('customers')}
-        />
-        <NavItem
-          view="deliveries"
-          label="Deliveries"
-          icon={<TruckIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('deliveries')}
-        />
-        <NavItem
-          view="bills"
-          label="Bills"
-          icon={<BillIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('bills')}
-        />
-        <NavItem
-          view="payments"
-          label="Payments"
-          icon={<CreditCardIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('payments')}
-        />
-        <div className="pt-4 mt-4 border-t border-gray-200">
-           <NavItem
-              view="cms"
-              label="Website Content"
-              icon={<PencilIcon className="h-5 w-5" />}
+        {userRole === 'admin' && (
+          <>
+            <NavItem
+              view="dashboard"
+              label="Dashboard"
+              icon={<DashboardIcon className="h-5 w-5" />}
               activeView={activeView}
-              onClick={() => handleSetView('cms')}
+              onClick={() => handleSetView('dashboard')}
             />
             <NavItem
-              view="database"
-              label="Database Helper"
-              icon={<DatabaseIcon className="h-5 w-5" />}
+              view="customers"
+              label="Customers"
+              icon={<UsersIcon className="h-5 w-5" />}
               activeView={activeView}
-              onClick={() => handleSetView('database')}
+              onClick={() => handleSetView('customers')}
             />
-        </div>
+            <NavItem
+              view="logins"
+              label="Logins"
+              icon={<UsersIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('logins')}
+            />
+          </>
+        )}
+        
+        <NavItem
+          view="orders"
+          label="Orders"
+          icon={<ClipboardIcon className="h-5 w-5" />}
+          activeView={activeView}
+          onClick={() => handleSetView('orders')}
+        />
+
+        {userRole === 'admin' && (
+          <>
+            <NavItem
+              view="delivery_approvals"
+              label="Delivery Approvals"
+              icon={<ApprovalIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('delivery_approvals')}
+            />
+            <NavItem
+              view="deliveries"
+              label="Deliveries"
+              icon={<TruckIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('deliveries')}
+            />
+            <NavItem
+              view="bills"
+              label="Bills"
+              icon={<BillIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('bills')}
+            />
+            <NavItem
+              view="payments"
+              label="Payments"
+              icon={<CreditCardIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('payments')}
+            />
+            <div className="pt-4 mt-4 border-t border-gray-200">
+               <NavItem
+                  view="cms"
+                  label="Website Content"
+                  icon={<PencilIcon className="h-5 w-5" />}
+                  activeView={activeView}
+                  onClick={() => handleSetView('cms')}
+                />
+                <NavItem
+                  view="database"
+                  label="Database Helper"
+                  icon={<DatabaseIcon className="h-5 w-5" />}
+                  activeView={activeView}
+                  onClick={() => handleSetView('database')}
+                />
+            </div>
+          </>
+        )}
       </nav>
     </aside>
   );

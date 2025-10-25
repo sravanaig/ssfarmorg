@@ -136,7 +136,7 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     return `
 Hi ${customer.name},
 
-Here is your milk bill summary from *ssfatmorganic* for *${billingPeriod}*.
+Here is your milk bill summary from *ssfarmorganic* for *${billingPeriod}*.
 
 *Summary*
 -----------------------------------
@@ -182,7 +182,7 @@ Thank you for your business!
   const generateBillPage = (doc: any, details: BillDetails) => {
     const { customer, totalQuantity, totalAmount, totalPaid, balance, previousBalance, deliveriesForPeriod, period } = details;
     doc.setFontSize(20);
-    doc.text('ssfatmorganic - Milk Bill', 14, 22);
+    doc.text('ssfarmorganic - Milk Bill', 14, 22);
     doc.setFontSize(12);
     doc.text(`Customer: ${customer.name}`, 14, 40);
     doc.text(`Address: ${customer.address}`, 14, 46);
@@ -296,9 +296,6 @@ Thank you for your business!
     setIsSaving(true);
     
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Not authenticated");
-
         const changes = Array.from(pendingDeliveryChanges.entries());
 
         const deliveriesToUpsert = changes
@@ -307,7 +304,6 @@ Thank you for your business!
                 customerId: selectedCustomerId,
                 date,
                 quantity,
-                userId: user.id,
             }));
             
         const datesToDelete = changes

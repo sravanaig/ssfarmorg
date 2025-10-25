@@ -36,7 +36,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                 <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
                 <button onClick={() => handleNavClick('home')} className="flex items-center space-x-2">
                     <MilkIcon className="h-8 w-8 text-blue-600"/>
-                    <span className="text-xl font-bold text-gray-800">ssfatmorganic</span>
+                    <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
                 </button>
                 
                 {/* Desktop Nav */}
@@ -85,7 +85,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     <div>
                     <div className="flex items-center justify-center md:justify-start space-x-2 mb-4">
                         <MilkIcon className="h-8 w-8 text-blue-400"/>
-                        <span className="text-xl font-bold">ssfatmorganic</span>
+                        <span className="text-xl font-bold">ssfarmorganic</span>
                     </div>
                     <p className="text-gray-400">Delivering pure, farm-fresh milk and happiness to your doorstep every day.</p>
                     </div>
@@ -101,12 +101,12 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     <h4 className="font-semibold text-lg mb-4">Contact</h4>
                     <ul className="space-y-2 text-gray-400">
                         <li><a href="#" className="hover:text-white">Medipally, Hyderabad</a></li>
-                        <li><a href="mailto:contact@ssfatmorganic.com" className="hover:text-white">contact@ssfatmorganic.com</a></li>
+                        <li><a href="mailto:contact@ssfarmorganic.com" className="hover:text-white">contact@ssfarmorganic.com</a></li>
                     </ul>
                     </div>
                 </div>
                 <div className="border-t border-gray-700 mt-8 pt-6 text-center text-gray-500">
-                    <p>&copy; {new Date().getFullYear()} ssfatmorganic. All rights reserved.</p>
+                    <p>&copy; {new Date().getFullYear()} ssfarmorganic. All rights reserved.</p>
                 </div>
                 </div>
             </footer>

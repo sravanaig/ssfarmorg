@@ -241,7 +241,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
 
              {customers.length === 0 && deliveries.length === 0 && (
                  <div className="mt-8 text-center py-12 px-6 bg-white rounded-lg shadow-md">
-                    <h3 className="text-xl font-medium text-gray-700">Welcome to ssfatmorganic!</h3>
+                    <h3 className="text-xl font-medium text-gray-700">Welcome to ssfarmorganic!</h3>
                     <p className="mt-2 text-md text-gray-500">Your dashboard is ready. Add some customers and record deliveries to see your stats here.</p>
                 </div>
             )}

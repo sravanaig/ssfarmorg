@@ -149,8 +149,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showHelp, setShowHelp] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredCustomers = useMemo(() => {
@@ -165,22 +163,11 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     );
   }, [customers, searchTerm]);
 
-  const migrationSql = `-- This script assigns existing customers (that don't have an owner) to your user account.\n-- It's safe to run multiple times.\nUPDATE public.customers SET "userId" = auth.uid() WHERE "userId" IS NULL;`;
-
-  const handleCopySql = () => {
-      navigator.clipboard.writeText(migrationSql);
-      setCopiedSql(true);
-      setTimeout(() => setCopiedSql(false), 2000);
-  };
-
   const handleAddCustomer = async (customerData: Omit<Customer, 'id' | 'userId'>) => {
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("You must be logged in to add a customer.");
-
         const { data, error } = await supabase
             .from('customers')
-            .insert({ ...customerData, userId: user.id })
+            .insert(customerData)
             .select()
             .single();
 
@@ -224,6 +211,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             // Also delete related deliveries and payments
             await supabase.from('deliveries').delete().eq('customerId', id);
             await supabase.from('payments').delete().eq('customerId', id);
+            await supabase.from('orders').delete().eq('customerId', id);
             const { error } = await supabase.from('customers').delete().eq('id', id);
             if (error) throw error;
             setCustomers(prev => prev.filter(c => c.id !== id));
@@ -272,18 +260,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         if (!requiredHeaders.every(h => header.includes(h))) {
             throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
         }
-
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("You must be logged in to import customers.");
         
         const newCustomersData = rows.slice(1).map(row => {
             const values = row.split(',');
-            // Helper to safely get value from CSV row, preventing errors on malformed rows
             const getColumnValue = (columnName: string) => values[header.indexOf(columnName)]?.trim() || '';
 
             let status = getColumnValue('status').toLowerCase();
             if (status !== 'active' && status !== 'inactive') {
-                status = 'active'; // Default to active if status is missing or invalid
+                status = 'active';
             }
 
             return {
@@ -293,9 +277,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
                 defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
                 status: status as 'active' | 'inactive',
-                userId: user.id,
             };
-        }).filter(customer => customer.name); // Filter out empty rows that might result from newlines
+        }).filter(customer => customer.name);
 
         if (newCustomersData.length === 0) {
             alert("No valid customer data found to import.");
@@ -426,36 +409,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                 <PlusIcon className="h-5 w-5 mr-2"/>
                                 Add Customer
                             </button>
-                        </div>
-                        <div className="mt-8 border-t pt-6">
-                            <button onClick={() => setShowHelp(!showHelp)} className="text-sm text-blue-600 hover:underline">
-                                Trouble seeing existing customers?
-                            </button>
-                            {showHelp && (
-                                <div className="mt-4 p-4 bg-gray-50 rounded-lg text-left max-w-2xl mx-auto">
-                                    <p className="text-sm text-gray-700 mb-2">If you added customers before setting up user accounts, you may need to assign them to your user. Run the following SQL script in your Supabase project to fix this.</p>
-                                    <div className="relative">
-                                        <pre className="bg-gray-800 text-white p-4 rounded-md text-xs overflow-x-auto">
-                                            {migrationSql}
-                                        </pre>
-                                        <button onClick={handleCopySql} className="absolute top-2 right-2 flex items-center px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-500">
-                                            {copiedSql ? <CheckIcon className="h-4 w-4 mr-1 text-green-400" /> : <ClipboardIcon className="h-4 w-4 mr-1" />}
-                                            {copiedSql ? 'Copied!' : 'Copy Script'}
-                                        </button>
-                                    </div>
-                                    <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-                                        <a href={projectRef ? `https://supabase.com/dashboard/project/${projectRef}/sql/new` : 'https://supabase.com/dashboard'} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 text-sm">
-                                            Open Supabase SQL Editor
-                                        </a>
-                                        <button 
-                                            onClick={() => window.location.reload()}
-                                            className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 text-sm"
-                                        >
-                                            Refresh Page
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
                 )}

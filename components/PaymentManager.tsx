@@ -94,13 +94,9 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
     if (!selectedCustomer) return;
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Not authenticated");
-
         const newPaymentData = {
             ...paymentData,
             customerId: selectedCustomer.id,
-            userId: user.id
         };
 
         const { data, error } = await supabase.from('payments').insert(newPaymentData).select().single();

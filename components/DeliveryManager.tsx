@@ -85,9 +85,6 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   const handleSave = async () => {
     setIsSaving(true);
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Not authenticated");
-        
         // Determine the final state for all active customers based on the UI
         const changesToProcess = new Map<string, number>();
         activeCustomers.forEach(customer => {
@@ -118,7 +115,6 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 customerId,
                 date: selectedDate,
                 quantity,
-                userId: user.id,
             }));
 
         const customerIdsToDelete = changes
@@ -237,11 +233,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 return;
             }
             
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error("Not authenticated");
-
             const customerMapByName = new Map(customers.map(c => [c.name.toLowerCase(), c.id]));
-            const deliveriesToUpsert: Omit<Delivery, 'id'>[] = [];
+            const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
             const notFoundCustomers = new Set<string>();
 
             rows.slice(1).forEach(row => {
@@ -257,7 +250,6 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                             customerId,
                             date,
                             quantity,
-                            userId: user.id,
                         });
                     }
                 } else {
