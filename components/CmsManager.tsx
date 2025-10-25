@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { GoogleGenAI } from '@google/genai';
-import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, SpinnerIcon } from './Icons';
+import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, SpinnerIcon, PlusIcon, TrashIcon } from './Icons';
 
 interface CmsManagerProps {
     content: WebsiteContent | null;
@@ -134,6 +134,53 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
         }
     };
     
+    const handleAddItem = (section: 'heroSlides' | 'productsPage' | 'testimonials' | 'founders') => {
+        setFormData(prev => {
+            if (!prev) return null;
+            const newState = structuredClone(prev);
+    
+            switch (section) {
+                case 'heroSlides':
+                    newState.heroSlides.push({ title: "New Slide", subtitle: "A great new feature.", image: "https://images.unsplash.com/photo-1570913149827-d2ac84ab3f9a?q=80&w=2070&auto=format&fit=crop" });
+                    break;
+                case 'productsPage':
+                    newState.productsPage.products.push({ name: "New Product", description: "Describe the new product.", benefits: ["New benefit"], image: "https://images.unsplash.com/photo-1559598467-f8b76c8155d0?q=80&w=1974&auto=format&fit=crop" });
+                    break;
+                case 'testimonials':
+                    newState.testimonials.list.push({ quote: "This is a fantastic service!", name: "New Customer", role: "Happy Client" });
+                    break;
+                case 'founders':
+                    newState.founders.list.push({ name: "New Founder", title: "Co-Founder", bio: "A brief bio about the founder." });
+                    break;
+            }
+            return newState;
+        });
+    };
+
+    const handleRemoveItem = (section: 'heroSlides' | 'productsPage' | 'testimonials' | 'founders', index: number) => {
+        if (!window.confirm("Are you sure you want to remove this item?")) return;
+        setFormData(prev => {
+            if (!prev) return null;
+            const newState = structuredClone(prev);
+            
+            switch (section) {
+                case 'heroSlides':
+                    newState.heroSlides.splice(index, 1);
+                    break;
+                case 'productsPage':
+                    newState.productsPage.products.splice(index, 1);
+                    break;
+                case 'testimonials':
+                    newState.testimonials.list.splice(index, 1);
+                    break;
+                case 'founders':
+                    newState.founders.list.splice(index, 1);
+                    break;
+            }
+            return newState;
+        });
+    };
+    
     // Helper for rendering form fields
     const renderField = (label: string, value: string, onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void, isTextArea = false) => (
         <div className="mb-4">
@@ -159,8 +206,13 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
             
             <CollapsibleSection title="Hero Banner Slides">
                 {formData.heroSlides.map((slide, index) => (
-                    <div key={index} className="p-4 border rounded-md mb-4 bg-gray-50">
-                        <h4 className="font-semibold mb-2">Slide {index + 1}</h4>
+                    <div key={index} className="relative p-4 border rounded-md mb-4 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                            <h4 className="font-semibold mb-2">Slide {index + 1}</h4>
+                            <button onClick={() => handleRemoveItem('heroSlides', index)} className="text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-5 w-5" />
+                            </button>
+                        </div>
                         {renderField('Title', slide.title, (e) => handleInputChange('heroSlides', '', e.target.value, index, 'title'))}
                         {renderField('Subtitle', slide.subtitle, (e) => handleInputChange('heroSlides', '', e.target.value, index, 'subtitle'))}
                         {renderField('Image URL', slide.image, (e) => handleInputChange('heroSlides', '', e.target.value, index, 'image'))}
@@ -186,14 +238,24 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
                         </div>
                     </div>
                 ))}
+                <div className="mt-4">
+                    <button onClick={() => handleAddItem('heroSlides')} className="flex items-center px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
+                        <PlusIcon className="h-4 w-4 mr-2" /> Add New Slide
+                    </button>
+                </div>
             </CollapsibleSection>
 
             <CollapsibleSection title="Products Page">
                 {renderField('Page Title', formData.productsPage.title, (e) => handleInputChange('productsPage', 'title', e.target.value))}
                 {renderField('Page Subtitle', formData.productsPage.subtitle, (e) => handleInputChange('productsPage', 'subtitle', e.target.value))}
                 {formData.productsPage.products.map((product, index) => (
-                     <div key={index} className="p-4 border rounded-md mb-2 bg-gray-50">
-                         <h4 className="font-semibold mb-2">Product {index + 1}</h4>
+                     <div key={index} className="relative p-4 border rounded-md mb-2 bg-gray-50">
+                         <div className="flex justify-between items-start">
+                             <h4 className="font-semibold mb-2">Product {index + 1}</h4>
+                             <button onClick={() => handleRemoveItem('productsPage', index)} className="text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-5 w-5" />
+                            </button>
+                         </div>
                          {renderField('Name', product.name, (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'name'))}
                          {renderField('Description', product.description, (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'description'), true)}
                          <div className="mb-4">
@@ -208,32 +270,57 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
                         {renderField('Image URL', product.image, (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'image'))}
                      </div>
                 ))}
+                <div className="mt-4">
+                    <button onClick={() => handleAddItem('productsPage')} className="flex items-center px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
+                        <PlusIcon className="h-4 w-4 mr-2" /> Add New Product
+                    </button>
+                </div>
             </CollapsibleSection>
             
             <CollapsibleSection title="Testimonials">
                 {renderField('Section Title', formData.testimonials.title, (e) => handleInputChange('testimonials', 'title', e.target.value))}
                 {renderField('Section Subtitle', formData.testimonials.subtitle, (e) => handleInputChange('testimonials', 'subtitle', e.target.value))}
                 {formData.testimonials.list.map((item, index) => (
-                    <div key={index} className="p-4 border rounded-md mb-2 bg-gray-50">
-                        <h4 className="font-semibold mb-2">Testimonial {index + 1}</h4>
+                    <div key={index} className="relative p-4 border rounded-md mb-2 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                            <h4 className="font-semibold mb-2">Testimonial {index + 1}</h4>
+                            <button onClick={() => handleRemoveItem('testimonials', index)} className="text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-5 w-5" />
+                            </button>
+                        </div>
                         {renderField('Quote', item.quote, (e) => handleInputChange('testimonials', 'list', e.target.value, index, 'quote'), true)}
                         {renderField('Name', item.name, (e) => handleInputChange('testimonials', 'list', e.target.value, index, 'name'))}
                         {renderField('Role', item.role, (e) => handleInputChange('testimonials', 'list', e.target.value, index, 'role'))}
                     </div>
                 ))}
+                <div className="mt-4">
+                    <button onClick={() => handleAddItem('testimonials')} className="flex items-center px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
+                        <PlusIcon className="h-4 w-4 mr-2" /> Add New Testimonial
+                    </button>
+                </div>
             </CollapsibleSection>
             
             <CollapsibleSection title="Founders Section">
                 {renderField('Section Title', formData.founders.title, (e) => handleInputChange('founders', 'title', e.target.value))}
                 {renderField('Section Subtitle', formData.founders.subtitle, (e) => handleInputChange('founders', 'subtitle', e.target.value))}
                 {formData.founders.list.map((item, index) => (
-                    <div key={index} className="p-4 border rounded-md mb-2 bg-gray-50">
-                        <h4 className="font-semibold mb-2">Founder {index + 1}</h4>
+                    <div key={index} className="relative p-4 border rounded-md mb-2 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                            <h4 className="font-semibold mb-2">Founder {index + 1}</h4>
+                            <button onClick={() => handleRemoveItem('founders', index)} className="text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-5 w-5" />
+                            </button>
+                        </div>
                         {renderField('Name', item.name, (e) => handleInputChange('founders', 'list', e.target.value, index, 'name'))}
                         {renderField('Title', item.title, (e) => handleInputChange('founders', 'list', e.target.value, index, 'title'))}
                         {renderField('Bio', item.bio, (e) => handleInputChange('founders', 'list', e.target.value, index, 'bio'), true)}
                     </div>
                 ))}
+                <div className="mt-4">
+                    <button onClick={() => handleAddItem('founders')} className="flex items-center px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
+                        <PlusIcon className="h-4 w-4 mr-2" /> Add New Founder
+                    </button>
+                </div>
             </CollapsibleSection>
 
         </div>

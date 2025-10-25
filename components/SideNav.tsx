@@ -1,8 +1,9 @@
 
-import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon } from './Icons';
 
-type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms';
+import React from 'react';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon } from './Icons';
+
+type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database';
 
 interface SideNavProps {
   activeView: View;
@@ -91,6 +92,13 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen 
               icon={<PencilIcon className="h-5 w-5" />}
               activeView={activeView}
               onClick={() => handleSetView('cms')}
+            />
+            <NavItem
+              view="database"
+              label="Database Helper"
+              icon={<DatabaseIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('database')}
             />
         </div>
       </nav>

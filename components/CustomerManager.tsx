@@ -1,9 +1,7 @@
-
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Customer } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon, CheckIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon, CheckIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 
 interface CustomerManagerProps {
@@ -32,7 +30,9 @@ const CustomerForm: React.FC<{
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
+    const [milkPrice, setMilkPrice] = useState(90);
     const [defaultQuantity, setDefaultQuantity] = useState(1);
+    const [status, setStatus] = useState<'active' | 'inactive'>('active');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
     useEffect(() => {
@@ -40,12 +40,16 @@ const CustomerForm: React.FC<{
             setName(customerToEdit.name);
             setAddress(customerToEdit.address);
             setPhone(customerToEdit.phone);
+            setMilkPrice(customerToEdit.milkPrice);
             setDefaultQuantity(customerToEdit.defaultQuantity);
+            setStatus(customerToEdit.status || 'active');
         } else {
             setName('');
             setAddress('');
             setPhone('');
+            setMilkPrice(90);
             setDefaultQuantity(1);
+            setStatus('active');
         }
         setErrors({});
     }, [customerToEdit]);
@@ -57,6 +61,7 @@ const CustomerForm: React.FC<{
         if (phone && !/^\+?[\d\s-]{10,15}$/.test(phone)) {
             newErrors.phone = "Please enter a valid phone number.";
         }
+        if (milkPrice <= 0) newErrors.milkPrice = "Price must be a positive number.";
         if (defaultQuantity <= 0) newErrors.defaultQuantity = "Quantity must be a positive number.";
         
         setErrors(newErrors);
@@ -67,7 +72,7 @@ const CustomerForm: React.FC<{
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            onSubmit({ name, address, phone, milkPrice: 90, defaultQuantity });
+            onSubmit({ name, address, phone, milkPrice, defaultQuantity, status });
         }
     };
 
@@ -89,21 +94,48 @@ const CustomerForm: React.FC<{
                 {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
             </div>
             <div>
-                <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
-                <select
-                    value={defaultQuantity}
-                    onChange={e => setDefaultQuantity(parseFloat(e.target.value))}
-                    required
-                    className={`mt-1 block w-full border ${errors.defaultQuantity ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                >
-                    <option value={0.5}>1/2 liter</option>
-                    <option value={1}>1 liter</option>
-                    <option value={1.5}>1 1/2 liter</option>
-                    <option value={2}>2 liter</option>
-                    <option value={2.5}>2 1/2 liter</option>
-                    <option value={3}>3 liter</option>
-                </select>
-                {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
+                <label className="block text-sm font-medium text-gray-700">Milk Price (per liter)</label>
+                <input 
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={milkPrice}
+                    onChange={e => setMilkPrice(e.target.value ? parseFloat(e.target.value) : 0)}
+                    required 
+                    className={`mt-1 block w-full border ${errors.milkPrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                />
+                {errors.milkPrice && <p className="mt-1 text-xs text-red-600">{errors.milkPrice}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
+                    <select
+                        value={defaultQuantity}
+                        onChange={e => setDefaultQuantity(parseFloat(e.target.value))}
+                        required
+                        className={`mt-1 block w-full border ${errors.defaultQuantity ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                    >
+                        <option value={0.5}>1/2 liter</option>
+                        <option value={1}>1 liter</option>
+                        <option value={1.5}>1 1/2 liter</option>
+                        <option value={2}>2 liter</option>
+                        <option value={2.5}>2 1/2 liter</option>
+                        <option value={3}>3 liter</option>
+                    </select>
+                    {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700">Status</label>
+                    <select
+                        value={status}
+                        onChange={e => setStatus(e.target.value as 'active' | 'inactive')}
+                        required
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
             </div>
             <div className="flex justify-end pt-4 space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
@@ -119,6 +151,19 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredCustomers = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return customers;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return customers.filter(customer =>
+      customer.name.toLowerCase().includes(lowercasedFilter) ||
+      customer.address.toLowerCase().includes(lowercasedFilter) ||
+      customer.phone.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [customers, searchTerm]);
 
   const migrationSql = `-- This script assigns existing customers (that don't have an owner) to your user account.\n-- It's safe to run multiple times.\nUPDATE public.customers SET "userId" = auth.uid() WHERE "userId" IS NULL;`;
 
@@ -173,7 +218,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     }
   };
 
-  const handleDeleteCustomer = async (id: number) => {
+  const handleDeleteCustomer = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this customer? This action cannot be undone.')) {
         try {
             // Also delete related deliveries and payments
@@ -199,7 +244,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleExport = () => {
-    const headers = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity'];
+    const headers = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity', 'status'];
     const csvRows = [
         headers.join(','),
         ...customers.map(c => headers.map(h => c[h as keyof Omit<Customer, 'id' | 'userId'>]).join(','))
@@ -208,7 +253,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
   
   const handleDownloadTemplate = () => {
-    const headers = 'name,address,phone,milkPrice,defaultQuantity';
+    const headers = 'name,address,phone,milkPrice,defaultQuantity,status';
     downloadCSV(headers, 'customer_template.csv');
   };
 
@@ -223,7 +268,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         }
         
         const header = rows[0].split(',').map(h => h.trim());
-        const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity'];
+        const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity']; // status is optional
         if (!requiredHeaders.every(h => header.includes(h))) {
             throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
         }
@@ -234,14 +279,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         const newCustomersData = rows.slice(1).map(row => {
             const values = row.split(',');
             // Helper to safely get value from CSV row, preventing errors on malformed rows
-            const getColumnValue = (columnName: string) => values[header.indexOf(columnName)] || '';
+            const getColumnValue = (columnName: string) => values[header.indexOf(columnName)]?.trim() || '';
+
+            let status = getColumnValue('status').toLowerCase();
+            if (status !== 'active' && status !== 'inactive') {
+                status = 'active'; // Default to active if status is missing or invalid
+            }
 
             return {
-                name: getColumnValue('name').trim(),
-                address: getColumnValue('address').trim(),
-                phone: getColumnValue('phone').trim().replace('?',''),
+                name: getColumnValue('name'),
+                address: getColumnValue('address'),
+                phone: getColumnValue('phone').replace('?',''),
                 milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
                 defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
+                status: status as 'active' | 'inactive',
                 userId: user.id,
             };
         }).filter(customer => customer.name); // Filter out empty rows that might result from newlines
@@ -286,6 +337,16 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
             <h2 className="text-3xl font-bold text-gray-800">Customers</h2>
             <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                    <input
+                        type="text"
+                        placeholder="Search name, address, phone..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="border border-gray-300 rounded-lg shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    />
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                </div>
                 <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
                 <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
                     <UploadIcon className="h-4 w-4 mr-2"/> Import
@@ -314,33 +375,48 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
                 {customers.length > 0 ? (
-                <table className="w-full text-sm text-left text-gray-500">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                        <tr>
-                            <th scope="col" className="px-6 py-3">Name</th>
-                            <th scope="col" className="px-6 py-3">Address</th>
-                            <th scope="col" className="px-6 py-3">Phone</th>
-                            <th scope="col" className="px-6 py-3">Price</th>
-                            <th scope="col" className="px-6 py-3">Default Qty</th>
-                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {customers.map(customer => (
-                            <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                                <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
-                                <td className="px-6 py-4">{customer.address}</td>
-                                <td className="px-6 py-4">{customer.phone}</td>
-                                <td className="px-6 py-4">₹{customer.milkPrice.toFixed(2)}</td>
-                                <td className="px-6 py-4">{customer.defaultQuantity} L</td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4"><EditIcon className="w-5 h-5"/></button>
-                                    <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800"><TrashIcon className="w-5 h-5"/></button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                    filteredCustomers.length > 0 ? (
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th scope="col" className="px-6 py-3">Name</th>
+                                    <th scope="col" className="px-6 py-3">Address</th>
+                                    <th scope="col" className="px-6 py-3">Phone</th>
+                                    <th scope="col" className="px-6 py-3">Milk Price</th>
+                                    <th scope="col" className="px-6 py-3">Default Qty</th>
+                                    <th scope="col" className="px-6 py-3">Status</th>
+                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredCustomers.map(customer => (
+                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
+                                        <td className="px-6 py-4">{customer.address}</td>
+                                        <td className="px-6 py-4">{customer.phone}</td>
+                                        <td className="px-6 py-4">₹{customer.milkPrice.toFixed(2)}</td>
+                                        <td className="px-6 py-4">{customer.defaultQuantity} L</td>
+                                        <td className="px-6 py-4">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                                                customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                                {customer.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4"><EditIcon className="w-5 h-5"/></button>
+                                            <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800"><TrashIcon className="w-5 h-5"/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="text-center py-12 px-6">
+                            <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                            <p className="mt-1 text-sm text-gray-500">Try a different name, address, or phone number.</p>
+                        </div>
+                    )
                 ) : (
                     <div className="text-center py-12 px-6">
                         <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>

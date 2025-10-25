@@ -1,25 +1,26 @@
 export interface Customer {
-  id: number;
+  id: string;
   name: string;
   address: string;
   phone: string;
   milkPrice: number;
   defaultQuantity: number;
+  status: 'active' | 'inactive';
   userId?: string;
 }
 
 export interface Delivery {
   id: number;
-  customerId: number;
-  date: string; // YYYY-MM-DD
+  customerId: string; // YYYY-MM-DD
+  date: string;
   quantity: number;
   userId?: string;
 }
 
 export interface Payment {
   id: number;
-  customerId: number;
-  date: string; // YYYY-MM-DD
+  customerId: string; // YYYY-MM-DD
+  date: string;
   amount: number;
   userId?: string;
 }
@@ -31,6 +32,6 @@ export interface WebsiteContent {
   whyChooseUs: { title: string; subtitle: string; features: { title: string; text: string; }[] };
   productsSection: { title: string; subtitle: string; };
   testimonials: { title: string; subtitle: string; list: { quote: string; name: string; role: string; }[] };
-  founders: { title: string; subtitle: string; list: { name: string; title: string; bio: string; }[] };
+  founders: { title: string; subtitle:string; list: { name: string; title: string; bio: string; }[] };
   productsPage: { title: string; subtitle: string; products: { name: string; description: string; benefits: string[]; image: string; }[] };
 }

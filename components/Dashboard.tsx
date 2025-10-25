@@ -61,12 +61,20 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
         }, 0);
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
         const totalOutstanding = totalDue - totalPaid;
+        
+        // Customer stats
+        const totalCustomers = customers.length;
+        const activeCustomers = customers.filter(c => c.status === 'active').length;
+        const inactiveCustomers = totalCustomers - activeCustomers;
 
         return {
             totalQuantityToday,
             customersServedToday,
             mtdRevenue,
             totalOutstanding,
+            totalCustomers,
+            activeCustomers,
+            inactiveCustomers,
         };
     }, [customers, deliveries, payments]);
     
@@ -133,6 +141,30 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
                     icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
                     color="bg-red-500"
                 />
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-gray-200">
+                <h3 className="text-2xl font-bold text-gray-800 mb-4">Customer Overview</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <StatCard
+                        title="Total Customers"
+                        value={`${stats.totalCustomers}`}
+                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
+                        color="bg-gray-500"
+                    />
+                    <StatCard
+                        title="Active Customers"
+                        value={`${stats.activeCustomers}`}
+                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
+                        color="bg-teal-500"
+                    />
+                    <StatCard
+                        title="Inactive Customers"
+                        value={`${stats.inactiveCustomers}`}
+                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
+                        color="bg-orange-500"
+                    />
+                </div>
             </div>
             
              <div className="mt-8 pt-6 border-t border-gray-200">

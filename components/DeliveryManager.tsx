@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Customer, Delivery } from '../types';
-import { UploadIcon, DownloadIcon } from './Icons';
+import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 
 interface DeliveryManagerProps {
@@ -25,8 +24,22 @@ const downloadCSV = (csvContent: string, filename: string) => {
 const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<Map<number, number>>(new Map());
+  const [pendingChanges, setPendingChanges] = useState<Map<string, number>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const activeCustomers = useMemo(() => customers.filter(c => c.status === 'active'), [customers]);
+
+  const filteredActiveCustomers = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return activeCustomers;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return activeCustomers.filter(customer =>
+      customer.name.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [activeCustomers, searchTerm]);
 
   useEffect(() => {
     // Clear pending changes when the date is changed
@@ -34,7 +47,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   }, [selectedDate]);
 
   const deliveriesForDate = useMemo(() => {
-    const deliveryMap = new Map<number, number>();
+    const deliveryMap = new Map<string, number>();
     deliveries.forEach(d => {
         if (d.date === selectedDate) {
             deliveryMap.set(d.customerId, d.quantity);
@@ -43,7 +56,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     return deliveryMap;
   }, [deliveries, selectedDate]);
 
-  const handleQuantityChange = (customerId: number, newQuantityStr: string) => {
+  const handleQuantityChange = (customerId: string, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
     
     // An empty string in the input should be treated as 0
@@ -56,7 +69,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     setPendingChanges(prev => new Map(prev).set(customerId, newQuantity));
   };
   
-  const getDisplayQuantity = (customerId: number): number | string => {
+  const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
         const value = pendingChanges.get(customerId);
         return value === 0 ? '' : value!; // Show empty string for 0 for better UX
@@ -70,44 +83,108 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   }
   
   const handleSave = async () => {
-    if (pendingChanges.size === 0) {
-        alert("No changes to save.");
-        return;
-    }
-
     setIsSaving(true);
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("Not authenticated");
+        
+        // Determine the final state for all active customers based on the UI
+        const changesToProcess = new Map<string, number>();
+        activeCustomers.forEach(customer => {
+            const displayQuantity = getDisplayQuantity(customer.id);
+            const finalQuantity = (typeof displayQuantity === 'string' && displayQuantity === '') ? 0 : Number(displayQuantity);
+            const existingDelivery = deliveries.find(d => d.customerId === customer.id && d.date === selectedDate);
+            const existingQuantity = existingDelivery?.quantity;
 
-        const deliveriesToUpsert = Array.from(pendingChanges.entries()).map(([customerId, quantity]) => ({
-            customerId,
-            date: selectedDate,
-            quantity,
-            userId: user.id,
-        }));
+            if (finalQuantity !== existingQuantity) {
+                 if (existingDelivery === undefined && finalQuantity === 0) {
+                     return;
+                 }
+                 changesToProcess.set(customer.id, finalQuantity);
+            }
+        });
 
-        const { data, error } = await supabase
-            .from('deliveries')
-            .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
-            .select();
-
-        if (error) throw error;
-
-        if (data) {
-            setDeliveries(prev => {
-                const newDeliveriesMap = new Map(
-                    (data as Delivery[]).map(d => [`${d.customerId}-${d.date}`, d])
-                );
-                const otherDeliveries = prev.filter(d => !newDeliveriesMap.has(`${d.customerId}-${d.date}`));
-                return [...otherDeliveries, ...(data as Delivery[])];
-            });
-            setPendingChanges(new Map());
+        if (changesToProcess.size === 0) {
+            alert("No changes to save.");
+            setIsSaving(false);
+            return;
         }
+
+        const changes = Array.from(changesToProcess.entries());
+        
+        const deliveriesToUpsert = changes
+            .filter(([, quantity]) => quantity > 0)
+            .map(([customerId, quantity]) => ({
+                customerId,
+                date: selectedDate,
+                quantity,
+                userId: user.id,
+            }));
+
+        const customerIdsToDelete = changes
+            .filter(([, quantity]) => quantity === 0)
+            .map(([customerId]) => customerId)
+            .filter(id => deliveriesForDate.has(id)); // Only delete if it exists
+
+        const upsertPromise = deliveriesToUpsert.length > 0
+            ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select()
+            : Promise.resolve({ data: [], error: null });
+            
+        const deletePromise = customerIdsToDelete.length > 0
+            ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDelete)
+            : Promise.resolve({ error: null });
+
+        const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
+
+        if (upsertResult.error) throw upsertResult.error;
+        if (deleteResult.error) throw deleteResult.error;
+        
+        setDeliveries(prev => {
+            const deliveriesAfterDeletion = prev.filter(d => 
+                !(d.date === selectedDate && customerIdsToDelete.includes(d.customerId))
+            );
+
+            const updatedDeliveriesMap = new Map(
+                deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d])
+            );
+            
+            if (upsertResult.data) {
+                (upsertResult.data as Delivery[]).forEach(d => {
+                    updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d);
+                });
+            }
+
+            return Array.from(updatedDeliveriesMap.values());
+        });
+
+        setPendingChanges(new Map());
+        alert(`Successfully saved ${changesToProcess.size} changes for ${selectedDate}.`);
+
     } catch (error: any) {
         alert(`Error saving deliveries: ${error.message}`);
     } finally {
         setIsSaving(false);
+    }
+  };
+
+  const handleSetAllDefaults = () => {
+    const newChanges = new Map(pendingChanges);
+    let changesMade = 0;
+    activeCustomers.forEach(customer => {
+        const hasPendingChange = newChanges.has(customer.id);
+        const hasExistingDelivery = deliveriesForDate.has(customer.id);
+
+        if (!hasPendingChange && !hasExistingDelivery) {
+            newChanges.set(customer.id, customer.defaultQuantity);
+            changesMade++;
+        }
+    });
+
+    if (changesMade > 0) {
+        setPendingChanges(newChanges);
+        alert(`${changesMade} customers have been set to their default quantity. Click 'Save Changes' to confirm.`);
+    } else {
+        alert("All active customers already have a delivery entry for this date or have pending changes.");
     }
   };
 
@@ -197,11 +274,9 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 if (error) throw error;
                 if (data) {
                     setDeliveries(prev => {
-                        const updatedDeliveriesMap = new Map(prev.map(d => [d.id, d]));
-                        // Fix: The data from Supabase is not strongly typed. By casting the array to Delivery[],
-                        // we ensure that `d.id` is correctly inferred as a number.
+                        const updatedDeliveriesMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
                         (data as Delivery[]).forEach((d) => {
-                            updatedDeliveriesMap.set(d.id, d);
+                            updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d);
                         });
                         return Array.from(updatedDeliveriesMap.values());
                     });
@@ -243,9 +318,38 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             />
-             <button onClick={handleSave} disabled={isSaving || pendingChanges.size === 0} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {saveButtonText}
+            <button onClick={handleSetAllDefaults} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">
+                Set Defaults for All
             </button>
+             <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+            <div className="relative">
+                <input
+                    type="text"
+                    placeholder="Search customers..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="border border-gray-300 rounded-lg shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            </div>
+            <div className="flex items-center border border-gray-300 rounded-md">
+                <button 
+                  onClick={() => setViewMode('grid')} 
+                  className={`p-2 rounded-l-md transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                  aria-label="Grid view"
+                >
+                  <GridIcon className="h-5 w-5" />
+                </button>
+                <button 
+                  onClick={() => setViewMode('list')} 
+                  className={`p-2 rounded-r-md transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                  aria-label="List view"
+                >
+                  <ListIcon className="h-5 w-5" />
+                </button>
+            </div>
         </div>
       </div>
       <div className="flex items-center flex-wrap gap-2 mb-6">
@@ -261,36 +365,105 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             </button>
         </div>
       
-      {customers.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {customers.map(customer => {
-                const quantity = getDisplayQuantity(customer.id);
-                return (
-                    <div key={customer.id} className="bg-white shadow-md rounded-lg p-4 flex flex-col justify-between">
-                        <div>
-                            <h3 className="font-bold text-lg text-gray-800">{customer.name}</h3>
-                            <p className="text-sm text-gray-500">{customer.address}</p>
+      {activeCustomers.length > 0 ? (
+        filteredActiveCustomers.length > 0 ? (
+        <div className="pb-24">
+          {viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredActiveCustomers.map(customer => {
+                    const quantity = getDisplayQuantity(customer.id);
+                    return (
+                        <div key={customer.id} className="bg-white shadow-md rounded-lg p-4 flex flex-col justify-between">
+                            <div>
+                                <h3 className="font-bold text-lg text-gray-800">{customer.name}</h3>
+                                <p className="text-sm text-gray-500">{customer.address}</p>
+                            </div>
+                            <div className="mt-4 flex items-center justify-between">
+                                <label htmlFor={`quantity-grid-${customer.id}`} className="text-sm font-medium text-gray-700">Quantity (L):</label>
+                                <input
+                                    id={`quantity-grid-${customer.id}`}
+                                    type="number"
+                                    step="0.5"
+                                    min="0"
+                                    placeholder={String(customer.defaultQuantity)}
+                                    value={quantity}
+                                    onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
+                                    className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
                         </div>
-                        <div className="mt-4 flex items-center justify-between">
-                            <label className="text-sm font-medium text-gray-700">Quantity (L):</label>
-                            <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                placeholder={String(customer.defaultQuantity)}
-                                value={quantity}
-                                onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
-                                className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                    </div>
-                );
-            })}
+                    );
+                })}
+            </div>
+          ) : (
+            <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr>
+                                <th scope="col" className="px-6 py-3">Name</th>
+                                <th scope="col" className="px-6 py-3 hidden sm:table-cell">Address</th>
+                                <th scope="col" className="px-6 py-3 text-right">Quantity (L)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredActiveCustomers.map(customer => {
+                                const quantity = getDisplayQuantity(customer.id);
+                                return (
+                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
+                                        <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <label htmlFor={`quantity-list-${customer.id}`} className="sr-only">Quantity for {customer.name}</label>
+                                            <input
+                                                id={`quantity-list-${customer.id}`}
+                                                type="number"
+                                                step="0.5"
+                                                min="0"
+                                                placeholder={String(customer.defaultQuantity)}
+                                                value={quantity}
+                                                onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
+                                                className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+          )}
         </div>
+        ) : (
+            <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
+                <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+            </div>
+        )
       ) : (
          <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
-            <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-            <p className="mt-1 text-sm text-gray-500">Please add customers first to track deliveries.</p>
+            <h3 className="text-lg font-medium text-gray-700">No Active Customers Found</h3>
+            <p className="mt-1 text-sm text-gray-500">Please add customers or mark them as active to track deliveries.</p>
+        </div>
+      )}
+
+      {pendingChanges.size > 0 && (
+        <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                <div className="flex justify-between items-center">
+                    <span className="text-gray-700 font-medium">
+                        You have {pendingChanges.size} unsaved change{pendingChanges.size > 1 ? 's' : ''}.
+                    </span>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={isSaving} 
+                        className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {saveButtonText}
+                    </button>
+                </div>
+            </div>
         </div>
       )}
     </div>

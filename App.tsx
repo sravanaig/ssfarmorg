@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent } from './types';
@@ -11,12 +13,13 @@ import PaymentManager from './components/PaymentManager';
 import HomePage from './components/HomePage';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
-import { MilkIcon, MenuIcon, LogoutIcon, CheckIcon, ClipboardIcon } from './components/Icons';
+import { MilkIcon, MenuIcon, LogoutIcon } from './components/Icons';
 import ProductsPage from './components/ProductsPage';
 import SharedLayout from './components/SharedLayout';
 import CmsManager from './components/CmsManager';
+import DatabaseHelper from './components/DatabaseHelper';
 
-type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms';
+type View = 'dashboard' | 'customers' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
@@ -95,7 +98,6 @@ const App: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [websiteContent, setWebsiteContent] = useState<WebsiteContent | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [copiedSql, setCopiedSql] = useState<string | null>(null);
 
   const fetchPublicContent = async () => {
     try {
@@ -254,7 +256,11 @@ const App: React.FC = () => {
     });
     if (error) {
         console.error('Login error:', error.message);
-        return { success: false, error: error.message };
+        let errorMessage = error.message;
+        if (errorMessage.toLowerCase().includes('invalid login credentials')) {
+            errorMessage = "Invalid email or password. If you've just signed up, please check your email to confirm your account before logging in.";
+        }
+        return { success: false, error: errorMessage };
     }
     setView('dashboard');
     return { success: true };
@@ -265,102 +271,6 @@ const App: React.FC = () => {
     setCurrentPage('home');
   };
   
-  const setupSql = `-- This script sets up your database for multi-user support and the CMS.
--- It's safe to run multiple times.
-
--- STEP 1: Add missing columns to support multi-user and core features.
-ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "defaultQuantity" real NOT NULL DEFAULT 1;
-ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS "userId" uuid REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-
--- STEP 2: Create table for website content
-CREATE TABLE IF NOT EXISTS public.website_content (
-    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    content jsonb NOT NULL,
-    "userId" uuid UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid()
-);
-
--- STEP 3: Enable Row Level Security (RLS) on all tables
-ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
-
--- STEP 4: Create policies for users to manage their OWN data
-DROP POLICY IF EXISTS "Users can manage their own customers" ON public.customers;
-CREATE POLICY "Users can manage their own customers" ON public.customers FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
-DROP POLICY IF EXISTS "Users can manage their own deliveries" ON public.deliveries;
-CREATE POLICY "Users can manage their own deliveries" ON public.deliveries FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
-DROP POLICY IF EXISTS "Users can manage their own payments" ON public.payments;
-CREATE POLICY "Users can manage their own payments" ON public.payments FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
-DROP POLICY IF EXISTS "Users can manage their own website content" ON public.website_content;
-CREATE POLICY "Users can manage their own website content" ON public.website_content FOR ALL USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-
--- STEP 5: **NEW** Create policy to allow PUBLIC read access to website content
--- This is crucial for visitors to see your homepage.
-DROP POLICY IF EXISTS "Public can read website content" ON public.website_content;
-CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
-
--- STEP 6 (Optional): Assign existing data to your user (if you had data before user accounts)
-UPDATE public.customers SET "userId" = auth.uid() WHERE "userId" IS NULL;
-UPDATE public.deliveries SET "userId" = auth.uid() WHERE "userId" IS NULL;
-UPDATE public.payments SET "userId" = auth.uid() WHERE "userId" IS NULL;
-`;
-
-  const handleCopySql = (sql: string, id: string) => {
-      navigator.clipboard.writeText(sql);
-      setCopiedSql(id);
-      setTimeout(() => setCopiedSql(null), 2000);
-  };
-
-  const renderSchemaError = () => (
-    <div className="bg-white border border-red-200 shadow-lg rounded-lg p-6 max-w-4xl mx-auto" role="alert">
-        <h2 className="text-2xl font-bold text-red-600">Action Required: Final Database Setup</h2>
-        <div className="mt-4 text-gray-700 space-y-4">
-            <p>To secure your data, enable user accounts, and make your website public, your database needs an update. This is the final step!</p>
-            <p className="font-semibold text-red-500">{fetchError?.replace('SCHEMA_MISMATCH: ', '')}</p>
-            <p>Please click the button below to go to your Supabase Project's SQL Editor. Then, copy the entire script and run it.</p>
-            
-            <a href={projectRef ? `https://supabase.com/dashboard/project/${projectRef}/sql/new` : 'https://supabase.com/dashboard'} target="_blank" rel="noopener noreferrer" className="inline-block px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition-transform transform hover:scale-105">
-                Open Supabase SQL Editor
-            </a>
-
-            <div className="space-y-6">
-                <div>
-                    <h3 className="text-lg font-semibold text-gray-800">Database Setup Script</h3>
-                    <p className="text-sm text-gray-600 mb-2">Copy this entire script, paste it into the SQL editor, and click "Run".</p>
-                    <div className="relative">
-                        <pre className="bg-gray-800 text-white p-4 rounded-md text-xs overflow-x-auto">
-                            {setupSql}
-                        </pre>
-                        <button onClick={() => handleCopySql(setupSql, 'setup')} className="absolute top-2 right-2 flex items-center px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-500">
-                            {copiedSql === 'setup' ? <CheckIcon className="h-4 w-4 mr-1 text-green-400" /> : <ClipboardIcon className="h-4 w-4 mr-1" />}
-                            {copiedSql === 'setup' ? 'Copied!' : 'Copy Script'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="mt-8 border-t pt-6 text-center">
-                <p className="text-gray-600 font-medium">After running the SQL script, come back and click here:</p>
-                <button 
-                    onClick={() => window.location.reload()}
-                    className="mt-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 transition-transform transform hover:scale-105"
-                >
-                    I've updated my database, Refresh Page
-                </button>
-            </div>
-             <div className="mt-6 text-xs text-gray-500 text-center">
-                <p><strong>Troubleshooting:</strong> This script is safe to run multiple times. If you see notices like "column already exists" or "policy does not exist", that's perfectly normal.</p>
-            </div>
-        </div>
-    </div>
-  );
-
   const renderDashboard = () => {
     const renderView = () => {
         switch (view) {
@@ -376,6 +286,8 @@ UPDATE public.payments SET "userId" = auth.uid() WHERE "userId" IS NULL;
             return <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />;
           case 'cms':
             return <CmsManager content={websiteContent} setContent={setWebsiteContent} />;
+          case 'database':
+            return <DatabaseHelper projectRef={projectRef} errorMessage={fetchError?.replace('SCHEMA_MISMATCH: ', '') || ''} />;
           default:
             return <Dashboard customers={customers} deliveries={deliveries} payments={payments} />;
         }
@@ -426,7 +338,7 @@ UPDATE public.payments SET "userId" = auth.uid() WHERE "userId" IS NULL;
   if (fetchError?.startsWith('SCHEMA_MISMATCH:')) {
     return (
         <div className="flex items-center justify-center min-h-screen p-4 bg-gray-100">
-            {renderSchemaError()}
+            <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
         </div>
     );
   }

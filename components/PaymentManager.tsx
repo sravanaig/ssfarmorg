@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
 import type { Customer, Payment, Delivery } from '../types';
 import Modal from './Modal';
-import { PlusIcon } from './Icons';
+import { PlusIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 
 interface PaymentManagerProps {
@@ -62,6 +61,7 @@ const PaymentForm: React.FC<{
 const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, setPayments, deliveries }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const customerBalances = useMemo(() => {
     return customers.map(customer => {
@@ -79,6 +79,16 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [customers, deliveries, payments]);
+
+  const filteredCustomerBalances = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return customerBalances;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return customerBalances.filter(customer =>
+      customer.name.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [customerBalances, searchTerm]);
 
   const handleAddPayment = async (paymentData: Omit<Payment, 'id' | 'customerId' | 'userId'>) => {
     if (!selectedCustomer) return;
@@ -115,8 +125,18 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
   
   return (
     <div>
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
             <h2 className="text-3xl font-bold text-gray-800">Payments</h2>
+            <div className="relative">
+                <input
+                    type="text"
+                    placeholder="Search customers..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="border border-gray-300 rounded-lg shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            </div>
         </div>
 
         <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={`Record Payment for ${selectedCustomer?.name}`}>
@@ -129,33 +149,40 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
                 {customers.length > 0 ? (
-                <table className="w-full text-sm text-left text-gray-500">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                        <tr>
-                            <th scope="col" className="px-6 py-3">Customer</th>
-                            <th scope="col" className="px-6 py-3">Outstanding Balance</th>
-                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {customerBalances.map(customer => (
-                            <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                                <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
-                                    {customer.name}
-                                </th>
-                                <td className={`px-6 py-4 font-semibold ${customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                    ₹{customer.balance.toFixed(2)}
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => openPaymentModal(customer)} className="flex items-center ml-auto px-3 py-1.5 text-sm bg-green-600 text-white rounded-md shadow-sm hover:bg-green-700 transition-colors">
-                                        <PlusIcon className="h-4 w-4 mr-1"/>
-                                        Record Payment
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                    filteredCustomerBalances.length > 0 ? (
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th scope="col" className="px-6 py-3">Customer</th>
+                                    <th scope="col" className="px-6 py-3">Outstanding Balance</th>
+                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredCustomerBalances.map(customer => (
+                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                            {customer.name}
+                                        </th>
+                                        <td className={`px-6 py-4 font-semibold ${customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            ₹{customer.balance.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button onClick={() => openPaymentModal(customer)} className="flex items-center ml-auto px-3 py-1.5 text-sm bg-green-600 text-white rounded-md shadow-sm hover:bg-green-700 transition-colors">
+                                                <PlusIcon className="h-4 w-4 mr-1"/>
+                                                Record Payment
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="text-center py-12 px-6">
+                            <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                            <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+                        </div>
+                    )
                  ) : (
                     <div className="text-center py-12 px-6">
                         <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
