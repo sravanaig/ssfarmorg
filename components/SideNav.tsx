@@ -1,8 +1,8 @@
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
 import type { Profile } from '../types';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
 
 interface SideNavProps {
   activeView: View;
@@ -99,6 +99,13 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
               icon={<TruckIcon className="h-5 w-5" />}
               activeView={activeView}
               onClick={() => handleSetView('deliveries')}
+            />
+            <NavItem
+              view="calendar"
+              label="Calendar"
+              icon={<CalendarIcon className="h-5 w-5" />}
+              activeView={activeView}
+              onClick={() => handleSetView('calendar')}
             />
             <NavItem
               view="bills"

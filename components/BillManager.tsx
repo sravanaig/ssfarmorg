@@ -418,8 +418,12 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const text = e.target?.result as string;
-            if (!text) throw new Error("File is empty or could not be read.");
+            const result = e.target?.result;
+            if (typeof result !== 'string' || !result) {
+              alert('Error reading file content or file is empty.');
+              return;
+            }
+            const text = result;
 
             const rows = text.split('\n').filter(row => row.trim() !== '');
             if (rows.length < 2) throw new Error("CSV is empty or has only a header.");

@@ -19,8 +19,9 @@ import StaffDeliveryManager from './components/StaffDeliveryManager';
 import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
+import CalendarView from './components/CalendarView';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
@@ -154,6 +155,29 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     setFetchError(null);
+
+    // Helper function to fetch all records from a table, bypassing the default 1000-row limit.
+    const fetchAll = async <T extends { [key: string]: any }>(table: string, orderColumn: keyof T = 'id' as keyof T) => {
+        const CHUNK_SIZE = 1000;
+        let allData: T[] = [];
+        let from = 0;
+        
+        while (true) {
+            const { data, error } = await supabase
+                .from(table)
+                .select('*')
+                .order(orderColumn as string, { ascending: true }) // Ensure stable order for pagination
+                .range(from, from + CHUNK_SIZE - 1);
+
+            if (error) throw error;
+            if (data) allData.push(...(data as T[]));
+            if (!data || data.length < CHUNK_SIZE) break;
+            
+            from += CHUNK_SIZE;
+        }
+        return allData;
+    };
+
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
@@ -174,13 +198,10 @@ const App: React.FC = () => {
             .eq('id', user.id)
             .single();
         
-        // If there's a DB error and it's not the expected "no rows found" error, throw it.
         if (profileError && profileError.code !== 'PGRST116') {
             throw profileError;
         }
         
-        // If profileData is null, it's a critical setup error (likely a missing profile row).
-        // Handle this directly to ensure the user is always shown the Database Helper.
         if (!profileData) {
             setUserRole(null);
             setFetchError("SCHEMA_MISMATCH: Your user profile and role could not be loaded. This is often due to a database misconfiguration. Please run the setup script in the 'Database Helper' section.");
@@ -193,22 +214,18 @@ const App: React.FC = () => {
 
         if (role === 'staff') {
             const [
-                { data: customersData, error: customersError },
-                { data: ordersData, error: ordersError },
-                { data: pendingDeliveriesData, error: pendingDeliveriesError }
+                customersData,
+                ordersData,
+                pendingDeliveriesData
             ] = await Promise.all([
-                supabase.from('customers').select('*').order('name'),
-                supabase.from('orders').select('*'),
-                supabase.from('pending_deliveries').select('*')
+                fetchAll<Customer>('customers', 'name'),
+                fetchAll<Order>('orders'),
+                fetchAll<PendingDelivery>('pending_deliveries')
             ]);
             
-            if (customersError) throw customersError;
-            if (ordersError) throw ordersError;
-            if (pendingDeliveriesError) throw pendingDeliveriesError;
-
-            setCustomers((customersData as Customer[]) || []);
-            setOrders((ordersData as Order[]) || []);
-            setPendingDeliveries((pendingDeliveriesData as PendingDelivery[]) || []);
+            setCustomers(customersData || []);
+            setOrders(ordersData || []);
+            setPendingDeliveries(pendingDeliveriesData || []);
             await fetchPublicContent();
             return; // End execution for staff role
         }
@@ -219,32 +236,26 @@ const App: React.FC = () => {
         setManagedUsers((usersData as ManagedUser[]) || []);
 
         const [
-            { data: customersData, error: customersError },
-            { data: deliveriesData, error: deliveriesError },
-            { data: ordersData, error: ordersError },
-            { data: paymentsData, error: paymentsError },
-            { data: pendingDeliveriesData, error: pendingDeliveriesError },
-            { data: contentData, error: contentError }
+            customersData,
+            deliveriesData,
+            ordersData,
+            paymentsData,
+            pendingDeliveriesData,
         ] = await Promise.all([
-            supabase.from('customers').select('*').order('name'),
-            supabase.from('deliveries').select('*'),
-            supabase.from('orders').select('*'),
-            supabase.from('payments').select('*'),
-            supabase.from('pending_deliveries').select('*'),
-            supabase.from('website_content').select('content').single()
+            fetchAll<Customer>('customers', 'name'),
+            fetchAll<Delivery>('deliveries'),
+            fetchAll<Order>('orders'),
+            fetchAll<Payment>('payments'),
+            fetchAll<PendingDelivery>('pending_deliveries')
         ]);
-
-        if (customersError) throw customersError;
-        if (deliveriesError) throw deliveriesError;
-        if (ordersError) throw ordersError;
-        if (paymentsError) throw paymentsError;
-        if (pendingDeliveriesError) throw pendingDeliveriesError;
         
-        setCustomers((customersData as Customer[]) || []);
-        setDeliveries((deliveriesData as Delivery[]) || []);
-        setOrders((ordersData as Order[]) || []);
-        setPayments((paymentsData as Payment[]) || []);
-        setPendingDeliveries((pendingDeliveriesData as PendingDelivery[]) || []);
+        const { data: contentData, error: contentError } = await supabase.from('website_content').select('content').single();
+
+        setCustomers(customersData || []);
+        setDeliveries(deliveriesData || []);
+        setOrders(ordersData || []);
+        setPayments(paymentsData || []);
+        setPendingDeliveries(pendingDeliveriesData || []);
 
         if (contentError && contentError.code !== 'PGRST116') {
              throw contentError;
@@ -253,9 +264,6 @@ const App: React.FC = () => {
         if (contentData) {
             setWebsiteContent(contentData.content as WebsiteContent);
         } else {
-            // Fix: Use upsert to prevent a race condition where multiple concurrent fetches
-            // could attempt to insert a new content row for the same user, violating the
-            // unique constraint on the 'userId' column.
             const { data: seededContent, error: seedError } = await supabase
               .from('website_content')
               .upsert({ userId: user.id, content: defaultContent }, { onConflict: 'userId' })
@@ -282,7 +290,6 @@ const App: React.FC = () => {
             msg.includes('infinite recursion detected') ||
             msg.includes('structure of query does not match')
         ) {
-             // Treat this as a schema/setup issue that requires the user to see the helper page.
              setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
         } else {
             setFetchError(`Error loading data. ${friendlyMessage}`);
@@ -421,6 +428,8 @@ const App: React.FC = () => {
             return <OrderManager customers={customers} orders={orders} setOrders={setOrders} />;
           case 'deliveries':
             return <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />;
+          case 'calendar':
+            return <CalendarView customers={customers} deliveries={deliveries} />;
           case 'delivery_approvals':
             return <DeliveryApprovalManager 
                 customers={customers} 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer, Payment, Delivery } from '../types';
 import Modal from './Modal';
 import { PlusIcon, SearchIcon } from './Icons';
@@ -12,13 +12,24 @@ interface PaymentManagerProps {
   deliveries: Delivery[];
 }
 
-const PaymentForm: React.FC<{
+interface PaymentFormProps {
     onSubmit: (payment: Omit<Payment, 'id' | 'customerId' | 'userId'>) => void;
     onClose: () => void;
-}> = ({ onSubmit, onClose }) => {
+    outstandingBalance: number;
+}
+
+const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, outstandingBalance }) => {
     const [amount, setAmount] = useState(0);
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+    useEffect(() => {
+        if (outstandingBalance > 0) {
+            setAmount(parseFloat(outstandingBalance.toFixed(2)));
+        } else {
+            setAmount(0);
+        }
+    }, [outstandingBalance]);
 
     const validate = () => {
         const newErrors: { [key: string]: string } = {};
@@ -41,9 +52,15 @@ const PaymentForm: React.FC<{
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            {outstandingBalance > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
+                    <p className="text-sm text-gray-600">Current Outstanding Balance:</p>
+                    <p className="text-xl font-bold text-blue-600">₹{outstandingBalance.toFixed(2)}</p>
+                </div>
+            )}
             <div>
-                <label className="block text-sm font-medium text-gray-700">Amount</label>
-                <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(parseFloat(e.target.value))} required className={`mt-1 block w-full border ${errors.amount ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                <label className="block text-sm font-medium text-gray-700">Amount to Pay</label>
+                <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value ? parseFloat(e.target.value) : 0)} required className={`mt-1 block w-full border ${errors.amount ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
                 {errors.amount && <p className="mt-1 text-xs text-red-600">{errors.amount}</p>}
             </div>
             <div>
@@ -59,9 +76,11 @@ const PaymentForm: React.FC<{
     );
 };
 
+type CustomerWithBalance = Customer & { balance: number };
+
 const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, setPayments, deliveries }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerWithBalance | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   const customerBalances = useMemo(() => {
@@ -123,7 +142,7 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
     }
   };
   
-  const openPaymentModal = (customer: Customer) => {
+  const openPaymentModal = (customer: CustomerWithBalance) => {
     setSelectedCustomer(customer);
     setIsModalOpen(true);
   };
@@ -148,6 +167,7 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
             <PaymentForm
                 onSubmit={handleAddPayment}
                 onClose={() => setIsModalOpen(false)}
+                outstandingBalance={selectedCustomer?.balance || 0}
             />
         </Modal>
 
