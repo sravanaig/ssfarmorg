@@ -156,7 +156,8 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
     }
     
     let totalQuantity = 0;
-    const customerMap = new Map(customers.map(c => [c.id, c.name]));
+    // FIX: Explicitly type customerMap to resolve type inference issue.
+    const customerMap: Map<string, string> = new Map(customers.map(c => [c.id, c.name]));
 
     const orderLines = Array.from(ordersToSend.entries())
         .sort((a, b) => {

@@ -1,4 +1,5 @@
 
+
 import React, { useMemo, useState } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
 import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon } from './Icons';
@@ -40,7 +41,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = today.substring(0, 7); // YYYY-MM
         
-        const customerMap = new Map(customers.map(c => [c.id, c]));
+        // FIX: Explicitly type customerMap to resolve type inference issue.
+        const customerMap: Map<string, Customer> = new Map(customers.map(c => [c.id, c]));
 
         // Today's Deliveries
         const todaysDeliveries = deliveries.filter(d => d.date === today);
@@ -79,7 +81,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
     }, [customers, deliveries, payments]);
     
     const dailySummary = useMemo(() => {
-        const customerMap = new Map(customers.map(c => [c.id, c]));
+        // FIX: Explicitly type customerMap to resolve type inference issue.
+        const customerMap: Map<string, Customer> = new Map(customers.map(c => [c.id, c]));
         const deliveriesForDate = deliveries.filter(d => d.date === summaryDate);
 
         const totalQuantity = deliveriesForDate.reduce((sum, d) => sum + d.quantity, 0);
@@ -99,7 +102,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
     const monthlySummary = useMemo(() => {
         if (!summaryMonth) return { totalQuantity: 0, customersServed: 0, totalRevenue: 0 };
         
-        const customerMap = new Map(customers.map(c => [c.id, c]));
+        // FIX: Explicitly type customerMap to resolve type inference issue.
+        const customerMap: Map<string, Customer> = new Map(customers.map(c => [c.id, c]));
         const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
 
         const totalQuantity = deliveriesForMonth.reduce((sum, d) => sum + d.quantity, 0);

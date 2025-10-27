@@ -215,9 +215,10 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const text = e.target?.result;
-            if (typeof text !== 'string') {
-                alert('Error reading file content.');
+            // Fix: Cast FileReader result to string since we use `readAsText`, and check for null/empty content.
+            const text = e.target?.result as string;
+            if (!text) {
+                alert('Error reading file content or file is empty.');
                 return;
             }
             const rows = text.split('\n').filter(row => row.trim() !== '');

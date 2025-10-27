@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon } from './Icons';
+import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 
 interface BillManagerProps {
@@ -132,6 +132,14 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     
     const [year, month] = billingMonth.split('-');
     const billingPeriod = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+    
+    const upiId = '9959202010@upi';
+    const paymentMessage = balance > 0
+        ? `
+*To Pay: ₹${balance.toFixed(2)}*
+Please pay using UPI to: \`${upiId}\`
+`
+        : `*Bill is settled. Thank you!*`;
 
     return `
 Hi ${customer.name},
@@ -146,25 +154,61 @@ This Month's Bill: ₹${totalAmount.toFixed(2)}
 Payments Received: ₹${totalPaid.toFixed(2)}
 -----------------------------------
 *Outstanding Balance: ₹${balance.toFixed(2)}*
+${paymentMessage}
 
 Thank you for your business!
 `.trim().replace(/^\s+/gm, '');
   };
   
   const handleShareBill = async () => {
+    if (!selectedCustomerBillDetails) return;
+
     const message = generateBillMessage(selectedCustomerBillDetails);
-    if (!message) return;
-    if (navigator.share) {
-        try {
-            await navigator.share({ title: `Milk Bill for ${selectedCustomerBillDetails?.customer.name}`, text: message });
-        } catch (error) {
-            console.error('Error sharing:', error);
-            navigator.clipboard.writeText(message).then(() => alert('Sharing cancelled. Bill copied to clipboard!'));
-        }
-    } else {
-        navigator.clipboard.writeText(message).then(() => alert('Bill details copied to clipboard!'));
+    const { balance, customer } = selectedCustomerBillDetails;
+
+    // If no balance or navigator.share is not available, fallback to clipboard
+    if (balance <= 0 || !navigator.share) {
+      navigator.clipboard.writeText(message).then(() => {
+        alert(balance <= 0 ? 'Bill is settled. Copied to clipboard!' : 'Share API not supported. Bill details copied to clipboard!');
+      });
+      return;
+    }
+
+    try {
+      // Generate QR code URL
+      const [year, month] = billingMonth.split('-');
+      const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
+      const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
+      
+      // Fetch QR code as a blob
+      const response = await fetch(qrCodeUrl);
+      if (!response.ok) throw new Error('Could not fetch QR code image.');
+      const blob = await response.blob();
+      const qrFile = new File([blob], `ssfarmorganic_qr_bill.png`, { type: 'image/png' });
+
+      // Check if files can be shared
+      if (navigator.canShare && navigator.canShare({ files: [qrFile] })) {
+        // Share text and QR code image
+        await navigator.share({
+          title: `Milk Bill for ${customer.name}`,
+          text: message,
+          files: [qrFile],
+        });
+      } else {
+        // Fallback for devices that can't share files (e.g., some desktop browsers)
+        await navigator.share({
+          title: `Milk Bill for ${customer.name}`,
+          text: message,
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing with QR code:', error);
+      // Fallback if any part of the sharing process fails
+      navigator.clipboard.writeText(message).then(() => alert('Sharing QR failed. Bill text copied to clipboard!'));
     }
   };
+
 
   const handleSendWhatsApp = (details: BillDetails | null) => {
     if (!details) return;
@@ -414,6 +458,27 @@ Thank you for your business!
                 <p className="flex justify-between"><span>Payments Received:</span> <strong className="text-green-600">- ₹{selectedCustomerBillDetails.totalPaid.toFixed(2)}</strong></p>
                 <p className="flex justify-between text-xl font-bold border-t pt-2 mt-2 text-blue-600"><span>Outstanding Balance:</span> <span>₹{selectedCustomerBillDetails.balance.toFixed(2)}</span></p>
               </div>
+              {selectedCustomerBillDetails.balance > 0 && (() => {
+                const [year, month] = billingMonth.split('-');
+                const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
+                const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${selectedCustomerBillDetails.balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
+                const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiLink)}`;
+                return (
+                    <div className="mt-6">
+                        <h4 className="text-lg font-semibold text-gray-800 mb-2">Pay with UPI</h4>
+                        <div className="flex flex-col items-center bg-gray-50 p-4 rounded-lg border">
+                            <img src={qrCodeUrl} alt="UPI QR Code for payment" className="w-48 h-48 rounded-md" />
+                            <p className="mt-3 text-sm text-gray-800 font-medium flex items-center">
+                                <ScanIcon className="h-4 w-4 mr-2 text-gray-500"/>
+                                Scan to pay using any UPI app
+                            </p>
+                            <p className="font-mono text-sm mt-2 bg-gray-200 px-3 py-1 rounded-full text-gray-700">
+                                9959202010@upi
+                            </p>
+                        </div>
+                    </div>
+                );
+              })()}
             </div>
           </div>
            <div className="mt-8 flex flex-wrap justify-center items-center gap-4 print:hidden">
