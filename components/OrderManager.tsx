@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer, Order } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon, WhatsAppIcon } from './Icons';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface OrderManagerProps {
   customers: Customer[];
@@ -115,7 +116,7 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         alert(`Successfully saved ${changes.length} orders for ${selectedDate}.`);
 
     } catch (error: any) {
-        alert(`Error saving orders: ${error.message}`);
+        alert(`Error saving orders: ${getFriendlyErrorMessage(error)}`);
     } finally {
         setIsSaving(false);
     }

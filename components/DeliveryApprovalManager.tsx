@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import type { Customer, PendingDelivery, Delivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface DeliveryApprovalManagerProps {
   customers: Customer[];
@@ -60,7 +61,7 @@ const DeliveryApprovalManager: React.FC<DeliveryApprovalManagerProps> = ({ custo
         alert(`Successfully approved ${deliveriesToUpsert.length} deliveries for ${selectedDate}.`);
 
     } catch (error: any) {
-        alert(`Error during approval: ${error.message}`);
+        alert(`Error during approval: ${getFriendlyErrorMessage(error)}`);
     } finally {
         setIsApproving(false);
     }

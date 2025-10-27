@@ -3,6 +3,7 @@ import type { Customer } from '../types';
 import Modal from './Modal';
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon, CheckIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface CustomerManagerProps {
   customers: Customer[];
@@ -178,7 +179,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         }
         setIsModalOpen(false);
     } catch (error: any) {
-        alert(`Error: ${error.message}`);
+        alert(getFriendlyErrorMessage(error));
     }
   };
 
@@ -201,7 +202,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
       setCustomerToEdit(null);
       setIsModalOpen(false);
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      alert(getFriendlyErrorMessage(error));
     }
   };
 
@@ -216,7 +217,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             if (error) throw error;
             setCustomers(prev => prev.filter(c => c.id !== id));
         } catch (error: any) {
-            alert(`Error: ${error.message}`);
+            alert(getFriendlyErrorMessage(error));
         }
     }
   };
@@ -304,7 +305,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             const text = e.target?.result as string;
             await processAndImportCustomers(text);
         } catch (error: any) {
-            alert("An error occurred while importing the file: " + error.message);
+            alert("An error occurred while importing the file: " + getFriendlyErrorMessage(error));
             console.error(error);
         } finally {
             if (fileInputRef.current) {

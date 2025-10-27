@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon } from './Icons';
+import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon, UploadIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface BillManagerProps {
   customers: Customer[];
@@ -39,6 +40,9 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
   const [searchTerm, setSearchTerm] = useState('');
   const [editedQuantities, setEditedQuantities] = useState<Map<string, string>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [isQrLoading, setIsQrLoading] = useState(false);
 
   const activeCustomers = useMemo(() => customers.filter(c => c.status === 'active'), [customers]);
 
@@ -120,6 +124,40 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     if (!selectedCustomerId) return null;
     return allBillDetails.find(d => d.customer.id === selectedCustomerId) || null;
   }, [selectedCustomerId, allBillDetails]);
+  
+  useEffect(() => {
+    if (selectedCustomerBillDetails?.balance && selectedCustomerBillDetails.balance > 0) {
+        const generateAndFetchQr = async () => {
+            setIsQrLoading(true);
+            setQrCodeDataUrl(null);
+            try {
+                const { balance } = selectedCustomerBillDetails;
+                const [year, month] = billingMonth.split('-');
+                const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
+                const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
+                const qrCodeApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiLink)}`;
+
+                const response = await fetch(qrCodeApiUrl);
+                if (!response.ok) throw new Error('Failed to fetch QR code');
+                const blob = await response.blob();
+                
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setQrCodeDataUrl(reader.result as string);
+                    setIsQrLoading(false);
+                };
+                reader.readAsDataURL(blob);
+
+            } catch (error) {
+                console.error("Failed to generate QR code:", error);
+                setIsQrLoading(false);
+            }
+        };
+        generateAndFetchQr();
+    } else {
+        setQrCodeDataUrl(null);
+    }
+  }, [selectedCustomerBillDetails, billingMonth]);
 
   const handlePrint = () => {
     window.print();
@@ -166,46 +204,44 @@ Thank you for your business!
     const message = generateBillMessage(selectedCustomerBillDetails);
     const { balance, customer } = selectedCustomerBillDetails;
 
-    // If no balance or navigator.share is not available, fallback to clipboard
-    if (balance <= 0 || !navigator.share) {
-      navigator.clipboard.writeText(message).then(() => {
-        alert(balance <= 0 ? 'Bill is settled. Copied to clipboard!' : 'Share API not supported. Bill details copied to clipboard!');
-      });
-      return;
+    if (balance <= 0) {
+        navigator.clipboard.writeText(message).then(() => alert('Bill is settled. Copied to clipboard!'));
+        return;
     }
 
-    try {
-      // Generate QR code URL
-      const [year, month] = billingMonth.split('-');
-      const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
-      const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
-      
-      // Fetch QR code as a blob
-      const response = await fetch(qrCodeUrl);
-      if (!response.ok) throw new Error('Could not fetch QR code image.');
-      const blob = await response.blob();
-      const qrFile = new File([blob], `ssfarmorganic_qr_bill.png`, { type: 'image/png' });
+    // Try to use Web Share API with image if available
+    if (navigator.share && qrCodeDataUrl) {
+        try {
+            const blob = await (await fetch(qrCodeDataUrl)).blob();
+            const qrFile = new File([blob], `ssfarmorganic_qr_bill.png`, { type: 'image/png' });
 
-      // Check if files can be shared
-      if (navigator.canShare && navigator.canShare({ files: [qrFile] })) {
-        // Share text and QR code image
-        await navigator.share({
-          title: `Milk Bill for ${customer.name}`,
-          text: message,
-          files: [qrFile],
-        });
-      } else {
-        // Fallback for devices that can't share files (e.g., some desktop browsers)
-        await navigator.share({
-          title: `Milk Bill for ${customer.name}`,
-          text: message,
-        });
-      }
-    } catch (error) {
-      console.error('Error sharing with QR code:', error);
-      // Fallback if any part of the sharing process fails
-      navigator.clipboard.writeText(message).then(() => alert('Sharing QR failed. Bill text copied to clipboard!'));
+            if (navigator.canShare && navigator.canShare({ files: [qrFile] })) {
+                await navigator.share({
+                    title: `Milk Bill for ${customer.name}`,
+                    text: message,
+                    files: [qrFile],
+                });
+                return; // Shared successfully
+            }
+        } catch (error) {
+            console.error('Error sharing with QR code:', error);
+            // Fallthrough to share text only
+        }
+    }
+
+    // Fallback for browsers that don't support file sharing or if QR fails
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: `Milk Bill for ${customer.name}`,
+                text: message,
+            });
+        } catch (error) {
+            console.error('Error sharing text:', error);
+            navigator.clipboard.writeText(message).then(() => alert('Sharing failed. Bill text copied to clipboard!'));
+        }
+    } else {
+        navigator.clipboard.writeText(message).then(() => alert('Share API not supported. Bill details copied to clipboard!'));
     }
   };
 
@@ -225,38 +261,92 @@ Thank you for your business!
 
   const generateBillPage = (doc: any, details: BillDetails) => {
     const { customer, totalQuantity, totalAmount, totalPaid, balance, previousBalance, deliveriesForPeriod, period } = details;
+    const margin = 14;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const contentWidth = pageWidth - margin * 2;
+    const rightAlignX = pageWidth - margin;
+
+    // Header
     doc.setFontSize(20);
-    doc.text('ssfarmorganic - Milk Bill', 14, 22);
+    doc.text('ssfarmorganic - Milk Bill', margin, 22);
+
+    // Customer Info
     doc.setFontSize(12);
-    doc.text(`Customer: ${customer.name}`, 14, 40);
-    doc.text(`Address: ${customer.address}`, 14, 46);
-    doc.text(`Phone: ${customer.phone}`, 14, 52);
-    doc.text(`Billing Period: ${period}`, 14, 58);
+    doc.text(`Customer: ${customer.name}`, margin, 40);
+    
+    const addressLines = doc.splitTextToSize(`Address: ${customer.address}`, contentWidth);
+    doc.text(addressLines, margin, 46);
+    let currentY = 46 + (addressLines.length * 5); // Adjust Y based on number of address lines
+    
+    doc.text(`Phone: ${customer.phone}`, margin, currentY);
+    currentY += 6;
+    doc.text(`Billing Period: ${period}`, margin, currentY);
+    currentY += 12;
+
+    // Deliveries Table
     const tableColumn = ["Date", "Quantity (L)"];
     const tableRows = deliveriesForPeriod.map(d => [new Date(d.date + 'T00:00:00Z').toLocaleDateString('en-CA', { timeZone: 'UTC' }), d.quantity.toFixed(2)]);
-    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 70, theme: 'grid', headStyles: { fillColor: [34, 139, 34] } });
-    const finalY = doc.lastAutoTable.finalY || 80;
+    doc.autoTable({ 
+        head: [tableColumn], 
+        body: tableRows, 
+        startY: currentY, 
+        theme: 'grid', 
+        headStyles: { fillColor: [34, 139, 34] } 
+    });
+    
+    let finalY = doc.lastAutoTable.finalY;
+
+    // --- Summary Section ---
+    const summaryHeight = 80; // Approximate height needed for the summary section
+    if (finalY + summaryHeight > pageHeight) {
+        doc.addPage();
+        finalY = margin; // Reset Y position for the new page
+    }
+
     doc.setFontSize(12);
-    doc.text('Summary', 14, finalY + 10);
-    const summaryX = 14, valueX = 195;
-    let summaryY = finalY + 18;
-    const addLine = (label: string, value: string, isBold = false) => {
+    doc.text('Summary', margin, finalY + 15);
+    
+    let summaryY = finalY + 23;
+    
+    const addLine = (label: string, value: string, options: { isBold?: boolean; size?: number; color?: number[], isSubline?: boolean } = {}) => {
+        const { isBold = false, size = 12, color = [0, 0, 0], isSubline = false } = options;
+        
+        doc.setFontSize(size);
+        doc.setTextColor(color[0], color[1], color[2]);
         if (isBold) doc.setFont(undefined, 'bold');
-        doc.text(label, summaryX, summaryY);
-        doc.text(value, valueX, summaryY, { align: 'right' });
+        
+        doc.text(label, isSubline ? margin + 4 : margin, summaryY);
+        if (value) {
+           doc.text(value, rightAlignX, summaryY, { align: 'right' });
+        }
+        
         if (isBold) doc.setFont(undefined, 'normal');
-        summaryY += 7;
+        
+        // Reset to default for next line
+        doc.setFontSize(12);
+        doc.setTextColor(0, 0, 0);
+
+        summaryY += 7; // Increment Y position for the next line
     };
+
     addLine('Previous Balance:', `₹${previousBalance.toFixed(2)}`);
     addLine('This Month\'s Bill:', `₹${totalAmount.toFixed(2)}`);
-    doc.setFontSize(10); doc.setTextColor(100);
-    doc.text(`(Total Quantity: ${totalQuantity.toFixed(2)} L @ ₹${customer.milkPrice.toFixed(2)}/L)`, summaryX + 4, summaryY);
-    summaryY += 7; doc.setFontSize(12); doc.setTextColor(0);
+    addLine(`(Total Quantity: ${totalQuantity.toFixed(2)} L @ ₹${customer.milkPrice.toFixed(2)}/L)`, '', { size: 10, color: [100, 100, 100], isSubline: true });
     addLine('Total Amount Due:', `₹${(previousBalance + totalAmount).toFixed(2)}`);
-    addLine('Payments Received:', `- ₹${totalPaid.toFixed(2)}`);
-    doc.setLineWidth(0.5); doc.line(summaryX, summaryY - 3, valueX, summaryY - 3);
-    doc.setFontSize(14); addLine('Outstanding Balance:', `₹${balance.toFixed(2)}`, true);
+    addLine('Payments Received:', `- ₹${totalPaid.toFixed(2)}`, { color: [0, 128, 0] });
+    
+    // Divider line
+    summaryY += 2;
+    doc.setLineWidth(0.5);
+    doc.line(margin, summaryY, rightAlignX, summaryY);
+    summaryY += 5;
+
+    // Final balance with color coding
+    const balanceColor = balance > 0 ? [220, 53, 69] : [40, 167, 69]; // Red for due, green for settled/credit
+    addLine('Outstanding Balance:', `₹${balance.toFixed(2)}`, { isBold: true, size: 14, color: balanceColor });
   };
+
 
   const handleDownloadPdf = () => {
     if (!selectedCustomerBillDetails) return;
@@ -293,6 +383,115 @@ Thank you for your business!
     ].join(','));
     const csvContent = [headers.join(','), ...rows].join('\n');
     downloadCSV(csvContent, `billing_summary_${billingMonth}.csv`);
+  };
+
+  const handleDownloadTemplate = () => {
+    if (!billingMonth) {
+        alert("Please select a month first.");
+        return;
+    }
+
+    const [year, month] = billingMonth.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const headers = ['Customer Name', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))];
+
+    const rows = activeCustomers.map(customer => {
+        const row = [customer.name];
+        for (let i = 0; i < daysInMonth; i++) {
+            row.push(String(customer.defaultQuantity));
+        }
+        return row.join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    downloadCSV(csvContent, `delivery_template_${billingMonth}.csv`);
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !billingMonth) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const text = e.target?.result as string;
+            if (!text) throw new Error("File is empty or could not be read.");
+
+            const rows = text.split('\n').filter(row => row.trim() !== '');
+            if (rows.length < 2) throw new Error("CSV is empty or has only a header.");
+
+            const header = rows[0].split(',').map(h => h.trim());
+            const customerNameHeader = header[0];
+            if (customerNameHeader.toLowerCase() !== 'customer name') {
+                throw new Error("Invalid template. First column must be 'Customer Name'.");
+            }
+            
+            const customerMapByName = new Map(customers.map(c => [c.name.toLowerCase(), c.id]));
+            const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
+            const notFoundCustomers = new Set<string>();
+            const [year, monthStr] = billingMonth.split('-');
+
+            for (let i = 1; i < rows.length; i++) {
+                const values = rows[i].split(',');
+                const customerName = values[0].trim();
+                const customerId = customerMapByName.get(customerName.toLowerCase());
+
+                if (!customerId) {
+                    notFoundCustomers.add(customerName);
+                    continue;
+                }
+
+                for (let dayIndex = 1; dayIndex < header.length; dayIndex++) {
+                    const day = parseInt(header[dayIndex], 10);
+                    const quantityStr = values[dayIndex]?.trim();
+                    if (!isNaN(day) && quantityStr) {
+                        const quantity = parseFloat(quantityStr);
+                        if (!isNaN(quantity) && quantity > 0) {
+                            const date = `${year}-${monthStr}-${String(day).padStart(2, '0')}`;
+                            deliveriesToUpsert.push({ customerId, date, quantity });
+                        }
+                    }
+                }
+            }
+
+            if (deliveriesToUpsert.length === 0) {
+                alert("No valid delivery data found to import.");
+                return;
+            }
+
+            const { data, error } = await supabase
+                .from('deliveries')
+                .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
+                .select();
+            
+            if (error) throw error;
+            
+            if (data) {
+                setDeliveries(prev => {
+                    const updatedMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
+                    (data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
+                    return Array.from(updatedMap.values());
+                });
+            }
+
+            let alertMessage = `${data?.length || 0} delivery records imported/updated for ${billingMonth}.`;
+            if (notFoundCustomers.size > 0) {
+                alertMessage += `\n\nCould not find the following customers (they were skipped):\n- ${Array.from(notFoundCustomers).join('\n- ')}`;
+            }
+            alert(alertMessage);
+        } catch (error: any) {
+             alert(`Error importing file: ${getFriendlyErrorMessage(error)}`);
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
+    reader.readAsText(file);
   };
 
   const datesOfMonth = useMemo(() => {
@@ -368,23 +567,29 @@ Thank you for your business!
         if (upsertResult.error) throw upsertResult.error;
         if (deleteResult.error) throw deleteResult.error;
 
+        // Fix: Manually merge state changes to ensure immediate UI update
         setDeliveries(prev => {
             const deliveriesAfterDeletion = prev.filter(d => 
                 !(d.customerId === selectedCustomerId && datesToDelete.includes(d.date))
             );
-            const updatedDeliveriesMap = new Map(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            
+            const updatedDeliveriesMap = new Map(
+                deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d])
+            );
+
             if (upsertResult.data) {
                 (upsertResult.data as Delivery[]).forEach(d => {
                     updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d);
                 });
             }
+
             return Array.from(updatedDeliveriesMap.values());
         });
 
         setEditedQuantities(new Map());
         alert('Changes saved successfully!');
     } catch (error: any) {
-        alert(`Error saving changes: ${error.message}`);
+        alert(`Error saving changes: ${getFriendlyErrorMessage(error)}`);
     } finally {
         setIsSaving(false);
     }
@@ -396,6 +601,7 @@ Thank you for your business!
 
   return (
     <div>
+      <input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 p-4 bg-white rounded-lg shadow-sm print:hidden">
         <h2 className="text-3xl font-bold text-gray-800">Generate Bills</h2>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
@@ -458,16 +664,13 @@ Thank you for your business!
                 <p className="flex justify-between"><span>Payments Received:</span> <strong className="text-green-600">- ₹{selectedCustomerBillDetails.totalPaid.toFixed(2)}</strong></p>
                 <p className="flex justify-between text-xl font-bold border-t pt-2 mt-2 text-blue-600"><span>Outstanding Balance:</span> <span>₹{selectedCustomerBillDetails.balance.toFixed(2)}</span></p>
               </div>
-              {selectedCustomerBillDetails.balance > 0 && (() => {
-                const [year, month] = billingMonth.split('-');
-                const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
-                const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${selectedCustomerBillDetails.balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
-                const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiLink)}`;
-                return (
+              {selectedCustomerBillDetails.balance > 0 && (
                     <div className="mt-6">
                         <h4 className="text-lg font-semibold text-gray-800 mb-2">Pay with UPI</h4>
                         <div className="flex flex-col items-center bg-gray-50 p-4 rounded-lg border">
-                            <img src={qrCodeUrl} alt="UPI QR Code for payment" className="w-48 h-48 rounded-md" />
+                            {isQrLoading && <div className="w-48 h-48 flex items-center justify-center bg-gray-100 rounded-md"><p>Generating QR...</p></div>}
+                            {qrCodeDataUrl && !isQrLoading && <img src={qrCodeDataUrl} alt="UPI QR Code for payment" className="w-48 h-48 rounded-md" />}
+                            {!qrCodeDataUrl && !isQrLoading && <div className="w-48 h-48 flex items-center justify-center bg-gray-100 rounded-md text-center text-xs text-gray-500"><p>Could not load QR code. Please check your connection.</p></div>}
                             <p className="mt-3 text-sm text-gray-800 font-medium flex items-center">
                                 <ScanIcon className="h-4 w-4 mr-2 text-gray-500"/>
                                 Scan to pay using any UPI app
@@ -477,8 +680,7 @@ Thank you for your business!
                             </p>
                         </div>
                     </div>
-                );
-              })()}
+              )}
             </div>
           </div>
            <div className="mt-8 flex flex-wrap justify-center items-center gap-4 print:hidden">
@@ -511,6 +713,8 @@ Thank you for your business!
             <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
                 <h3 className="text-xl font-semibold text-gray-800">Monthly Billing Summary</h3>
                 <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download Template</button>
+                    <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><UploadIcon className="h-4 w-4 mr-2"/> Import Month's Deliveries</button>
                     <button onClick={handleExportSummary} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Export Summary (CSV)</button>
                     <button onClick={handleDownloadAllPdfs} className="flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download All Bills (PDF)</button>
                 </div>

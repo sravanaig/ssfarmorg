@@ -3,6 +3,7 @@ import type { ManagedUser } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { TrashIcon, PlusIcon } from './Icons';
 import Modal from './Modal';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface UserManagerProps {
   users: ManagedUser[];
@@ -86,7 +87,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
             );
             alert(`User role updated successfully.`);
         } catch (error: any) {
-            alert(`Error updating role: ${error.message}`);
+            alert(`Error updating role: ${getFriendlyErrorMessage(error)}`);
         } finally {
             setIsUpdating(null);
         }
@@ -113,7 +114,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
             }
 
         } catch (error: any) {
-            alert(`Error creating user: ${error.message}`);
+            alert(`Error creating user: ${getFriendlyErrorMessage(error)}`);
         } finally {
             setIsCreating(false);
         }
@@ -131,7 +132,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                 alert(`User "${userEmail}" deleted successfully.`);
             } catch (error: any)
             {
-                alert(`Error deleting user: ${error.message}`);
+                alert(`Error deleting user: ${getFriendlyErrorMessage(error)}`);
                 console.error('Deletion error:', error);
             } finally {
                 setIsUpdating(null);

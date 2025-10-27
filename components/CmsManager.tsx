@@ -3,6 +3,7 @@ import type { WebsiteContent } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { GoogleGenAI } from '@google/genai';
 import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, SpinnerIcon, PlusIcon, TrashIcon } from './Icons';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface CmsManagerProps {
     content: WebsiteContent | null;
@@ -92,6 +93,7 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
             setSaveStatus('success');
         } catch (error: any) {
             console.error("Error saving content:", error);
+            alert(`Error saving content: ${getFriendlyErrorMessage(error)}`);
             setSaveStatus('error');
         } finally {
             setIsSaving(false);

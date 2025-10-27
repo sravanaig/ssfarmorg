@@ -3,6 +3,7 @@ import type { Customer, Payment, Delivery } from '../types';
 import Modal from './Modal';
 import { PlusIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface PaymentManagerProps {
   customers: Customer[];
@@ -99,18 +100,26 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
             customerId: selectedCustomer.id,
         };
 
-        const { data, error } = await supabase.from('payments').insert(newPaymentData).select().single();
+        const { error } = await supabase.from('payments').insert(newPaymentData);
         if (error) throw error;
         
-        if (data) {
-            setPayments(prev => [...prev, data as Payment]);
+        // Re-fetch all payments to ensure UI consistency
+        const { data: updatedPayments, error: refetchError } = await supabase
+            .from('payments')
+            .select('*');
+            
+        if (refetchError) {
+            throw new Error(`Payment was saved, but failed to refresh data: ${refetchError.message}. Please refresh the page.`);
         }
+
+        setPayments(updatedPayments || []);
         
         setIsModalOpen(false);
         setSelectedCustomer(null);
+        alert('Payment recorded successfully!');
 
     } catch(error: any) {
-        alert(`Error: ${error.message}`);
+        alert(getFriendlyErrorMessage(error));
     }
   };
   

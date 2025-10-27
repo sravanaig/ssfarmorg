@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Customer, Delivery } from '../types';
 import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface DeliveryManagerProps {
   customers: Customer[];
@@ -157,7 +158,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         alert(`Successfully saved ${changesToProcess.size} changes for ${selectedDate}.`);
 
     } catch (error: any) {
-        alert(`Error saving deliveries: ${error.message}`);
+        alert(`Error saving deliveries: ${getFriendlyErrorMessage(error)}`);
     } finally {
         setIsSaving(false);
     }
@@ -284,7 +285,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             alert(alertMessage);
 
         } catch (error: any) {
-            alert("An error occurred while importing the file. " + error.message);
+            alert("An error occurred while importing the file. " + getFriendlyErrorMessage(error));
             console.error(error);
         } finally {
             if (fileInputRef.current) {

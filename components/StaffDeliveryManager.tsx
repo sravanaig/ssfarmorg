@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer, Order, PendingDelivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon } from './Icons';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface StaffDeliveryManagerProps {
   customers: Customer[];
@@ -97,6 +98,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
             ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDelete)
             : Promise.resolve({ error: null });
 
+        // Fix: Use `deletePromise` instead of `deleteResult` which has not been declared yet.
         const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
         
         if (upsertResult.error) throw upsertResult.error;
@@ -114,7 +116,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
         setPendingChanges(new Map());
         alert(`Successfully submitted ${changes.length} delivery records for admin approval.`);
     } catch (error: any) {
-        alert(`Error submitting deliveries: ${error.message}`);
+        alert(`Error submitting deliveries: ${getFriendlyErrorMessage(error)}`);
     } finally {
         setIsSaving(false);
     }

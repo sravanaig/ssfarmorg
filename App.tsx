@@ -18,6 +18,7 @@ import OrderManager from './components/OrderManager';
 import StaffDeliveryManager from './components/StaffDeliveryManager';
 import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
+import { getFriendlyErrorMessage } from './lib/errorHandler';
 
 type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins';
 export type Page = 'home' | 'login' | 'products';
@@ -268,7 +269,8 @@ const App: React.FC = () => {
         }
 
     } catch (error: any) {
-        console.error('Error fetching data:', error.message);
+        console.error('Error fetching data:', error);
+        const friendlyMessage = getFriendlyErrorMessage(error);
         const msg = (error.message || '').toLowerCase();
         if (
             msg.includes('relation "public.profiles" does not exist') ||
@@ -283,7 +285,7 @@ const App: React.FC = () => {
              // Treat this as a schema/setup issue that requires the user to see the helper page.
              setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
         } else {
-            setFetchError(`Error loading data. ${error.message}`);
+            setFetchError(`Error loading data. ${friendlyMessage}`);
         }
     }
   }, []);
