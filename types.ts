@@ -6,6 +6,8 @@ export interface Customer {
   milkPrice: number;
   defaultQuantity: number;
   status: 'active' | 'inactive';
+  previousBalance: number;
+  balanceAsOfDate: string | null;
   userId?: string;
 }
 
@@ -61,5 +63,17 @@ export interface WebsiteContent {
   productsSection: { title: string; subtitle: string; };
   testimonials: { title: string; subtitle: string; list: { quote: string; name: string; role: string; }[] };
   founders: { title: string; subtitle:string; list: { name: string; title: string; bio: string; }[] };
-  productsPage: { title: string; subtitle: string; products: { name: string; description: string; benefits: string[]; image: string; }[] };
+  productsPage: {
+    title: string;
+    subtitle: string;
+    products: {
+      name: string;
+      description: string;
+      benefits: string[];
+      image: string;
+      feed?: string;
+      extraction?: string;
+      process?: string;
+    }[];
+  };
 }

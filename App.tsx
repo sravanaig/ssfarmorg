@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -80,9 +81,29 @@ const defaultContent: WebsiteContent = {
     title: "Our Farm-Fresh Products",
     subtitle: "Pure, organic, and crafted with care. Discover the taste of nature.",
     products: [
-      { name: "Buffalo Milk (Organic)", description: "Experience the rich, creamy texture and superior taste of our 100% organic buffalo milk. Sourced from grass-fed buffaloes raised in a stress-free environment, our milk is packed with essential nutrients like calcium, protein, and healthy fats. It's perfect for making thick yogurt, delicious sweets, or enjoying on its own.", benefits: ["Higher fat content for richer taste", "Excellent source of protein and calcium", "Promotes strong bones and teeth", "Free from hormones and antibiotics"], image: "https://images.unsplash.com/photo-1628051233038-02195f4c4b57?q=80&w=1974&auto=format&fit=crop" },
-      { name: "Cow Milk (Organic)", description: "Our organic cow milk is the perfect choice for daily nutrition. It's light, fresh, and naturally sweet. Produced by free-range cows that graze on organic pastures, this milk is wholesome and free from any artificial additives. It's an ideal choice for children and adults alike, providing a balanced dose of vitamins and minerals.", benefits: ["Easily digestible A2 protein", "Rich in Vitamin D and B12", "Boosts immunity and metabolism", "Certified organic and pure"], image: "https://images.unsplash.com/photo-1559598467-f8b76c8155d0?q=80&w=1974&auto=format&fit=crop" },
-      { name: "Paneer (Organic, Wood-Fired)", description: "Discover the authentic flavor of our artisanal paneer, crafted using traditional methods. Made from our fresh organic milk, the paneer is prepared over a wood fire, which imparts a unique, subtle smoky flavor and a wonderfully soft, crumbly texture. It's a culinary delight that elevates any dish.", benefits: ["Unique smoky flavor from wood-fire preparation", "Excellent source of protein for vegetarians", "Soft, melt-in-your-mouth texture", "Made fresh with no preservatives"], image: "https://images.unsplash.com/photo-1626501131102-34a1b02643a6?q=80&w=1974&auto=format&fit=crop" }
+      {
+        name: "Buffalo Milk (Organic)",
+        description: "Experience the rich, creamy texture and superior taste of our 100% organic buffalo milk. Sourced from grass-fed buffaloes raised in a stress-free environment, our milk is packed with essential nutrients like calcium, protein, and healthy fats. It's perfect for making thick yogurt, delicious sweets, or enjoying on its own.",
+        benefits: ["Higher fat content for richer taste", "Excellent source of protein and calcium", "Promotes strong bones and teeth", "Free from hormones and antibiotics"],
+        image: "https://images.unsplash.com/photo-1628051233038-02195f4c4b57?q=80&w=1974&auto=format&fit=crop",
+        feed: "Our buffaloes graze freely on lush, organic pastures. Their diet consists of homegrown, pesticide-free fodder and natural supplements, ensuring the milk is wholesome and pure.",
+        extraction: "We use a gentle, automated milking process in a hygienic, stress-free environment. The milk is untouched by human hands, immediately chilled, and packed to lock in freshness."
+      },
+      {
+        name: "Cow Milk (Organic)",
+        description: "Our organic cow milk is the perfect choice for daily nutrition. It's light, fresh, and naturally sweet. Produced by free-range cows that graze on organic pastures, this milk is wholesome and free from any artificial additives. It's an ideal choice for children and adults alike, providing a balanced dose of vitamins and minerals.",
+        benefits: ["Easily digestible A2 protein", "Rich in Vitamin D and B12", "Boosts immunity and metabolism", "Certified organic and pure"],
+        image: "https://images.unsplash.com/photo-1559598467-f8b76c8155d0?q=80&w=1974&auto=format&fit=crop",
+        feed: "Our free-range cows enjoy a diverse diet of organic grasses. This natural grazing enhances the nutritional profile of the milk, making it rich in A2 protein and essential vitamins.",
+        extraction: "Milking is conducted with modern, clean technology that prioritizes the comfort of our cows. This gentle process guarantees the highest quality milk, chilled right away to preserve its farm-fresh taste."
+      },
+      {
+        name: "Paneer (Organic, Wood-Fired)",
+        description: "Discover the authentic flavor of our artisanal paneer, crafted using traditional methods. Made from our fresh organic milk, the paneer is prepared over a wood fire, which imparts a unique, subtle smoky flavor and a wonderfully soft, crumbly texture. It's a culinary delight that elevates any dish.",
+        benefits: ["Unique smoky flavor from wood-fire preparation", "Excellent source of protein for vegetarians", "Soft, melt-in-your-mouth texture", "Made fresh with no preservatives"],
+        image: "https://images.unsplash.com/photo-1626501131102-34a1b02643a6?q=80&w=1974&auto=format&fit=crop",
+        process: "Our paneer is crafted from a single source—our own organic milk. Using traditional wood-fired methods, we create a paneer that is incredibly soft with a subtle smoky flavor. It's made fresh daily without any preservatives or artificial additives."
+      }
     ]
   }
 };
@@ -116,6 +137,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<View>('dashboard');
   const [staffSubView, setStaffSubView] = useState<'orders' | 'deliveries'>('orders');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isLegacyCustomerSchema, setIsLegacyCustomerSchema] = useState(false);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -156,7 +178,6 @@ const App: React.FC = () => {
   const fetchData = useCallback(async () => {
     setFetchError(null);
 
-    // Helper function to fetch all records from a table, bypassing the default 1000-row limit.
     const fetchAll = async <T extends { [key: string]: any }>(table: string, orderColumn: keyof T = 'id' as keyof T) => {
         const CHUNK_SIZE = 1000;
         let allData: T[] = [];
@@ -166,7 +187,7 @@ const App: React.FC = () => {
             const { data, error } = await supabase
                 .from(table)
                 .select('*')
-                .order(orderColumn as string, { ascending: true }) // Ensure stable order for pagination
+                .order(orderColumn as string, { ascending: true })
                 .range(from, from + CHUNK_SIZE - 1);
 
             if (error) throw error;
@@ -176,6 +197,54 @@ const App: React.FC = () => {
             from += CHUNK_SIZE;
         }
         return allData;
+    };
+
+    const fetchCustomersWithLegacyFallback = async (): Promise<Customer[]> => {
+      try {
+        const customers = await fetchAll<Customer>('customers', 'name');
+        setIsLegacyCustomerSchema(false);
+        return customers;
+      } catch (error: any) {
+        const msg = (error.message || '').toLowerCase();
+        const isBalanceColumnError = msg.includes('balanceasofdate') || msg.includes('previousbalance');
+        // Catches both "column ... does not exist" and "could not find ... in the schema cache"
+        const isColumnMissingError = msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find'));
+
+        if (isBalanceColumnError && isColumnMissingError) {
+          console.warn("Legacy schema detected. Fetching customers without balance columns.");
+          setIsLegacyCustomerSchema(true);
+          
+          const fetchLegacy = async () => {
+            const CHUNK_SIZE = 1000;
+            let allLegacyData: Omit<Customer, 'previousBalance' | 'balanceAsOfDate'>[] = [];
+            let from = 0;
+            
+            while (true) {
+                const { data, error: fallbackError } = await supabase
+                    .from('customers')
+                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId')
+                    .order('name', { ascending: true })
+                    .range(from, from + CHUNK_SIZE - 1);
+
+                if (fallbackError) throw fallbackError;
+                if (data) allLegacyData.push(...data);
+                if (!data || data.length < CHUNK_SIZE) break;
+                
+                from += CHUNK_SIZE;
+            }
+            return allLegacyData;
+          };
+
+          const legacyCustomers = await fetchLegacy();
+          return legacyCustomers.map(c => ({
+              ...c,
+              previousBalance: 0,
+              balanceAsOfDate: null
+          }));
+        } else {
+          throw error;
+        }
+      }
     };
 
     try {
@@ -218,7 +287,7 @@ const App: React.FC = () => {
                 ordersData,
                 pendingDeliveriesData
             ] = await Promise.all([
-                fetchAll<Customer>('customers', 'name'),
+                fetchCustomersWithLegacyFallback(),
                 fetchAll<Order>('orders'),
                 fetchAll<PendingDelivery>('pending_deliveries')
             ]);
@@ -242,7 +311,7 @@ const App: React.FC = () => {
             paymentsData,
             pendingDeliveriesData,
         ] = await Promise.all([
-            fetchAll<Customer>('customers', 'name'),
+            fetchCustomersWithLegacyFallback(),
             fetchAll<Delivery>('deliveries'),
             fetchAll<Order>('orders'),
             fetchAll<Payment>('payments'),
@@ -421,7 +490,7 @@ const App: React.FC = () => {
           case 'dashboard':
             return <Dashboard customers={customers} deliveries={deliveries} payments={payments} />;
           case 'customers':
-            return <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} />;
+            return <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />;
           case 'logins':
             return <UserManager users={managedUsers} setUsers={setManagedUsers} />;
           case 'orders':

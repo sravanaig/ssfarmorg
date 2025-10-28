@@ -5,12 +5,6 @@ import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon,
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
-interface CustomerManagerProps {
-  customers: Customer[];
-  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
-  projectRef: string | null;
-}
-
 const downloadCSV = (csvContent: string, filename: string) => {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -23,17 +17,22 @@ const downloadCSV = (csvContent: string, filename: string) => {
     document.body.removeChild(link);
 };
 
-const CustomerForm: React.FC<{
+interface CustomerFormProps {
     onSubmit: (customer: Omit<Customer, 'id' | 'userId'>) => void;
     onClose: () => void;
     customerToEdit?: Customer | null;
-}> = ({ onSubmit, onClose, customerToEdit }) => {
+    isSubmitting: boolean;
+}
+
+const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customerToEdit, isSubmitting }) => {
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
     const [milkPrice, setMilkPrice] = useState(90);
     const [defaultQuantity, setDefaultQuantity] = useState(1);
     const [status, setStatus] = useState<'active' | 'inactive'>('active');
+    const [previousBalance, setPreviousBalance] = useState(0);
+    const [balanceAsOfDate, setBalanceAsOfDate] = useState('');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
     useEffect(() => {
@@ -44,6 +43,8 @@ const CustomerForm: React.FC<{
             setMilkPrice(customerToEdit.milkPrice);
             setDefaultQuantity(customerToEdit.defaultQuantity);
             setStatus(customerToEdit.status || 'active');
+            setPreviousBalance(customerToEdit.previousBalance || 0);
+            setBalanceAsOfDate(customerToEdit.balanceAsOfDate || '');
         } else {
             setName('');
             setAddress('');
@@ -51,6 +52,8 @@ const CustomerForm: React.FC<{
             setMilkPrice(90);
             setDefaultQuantity(1);
             setStatus('active');
+            setPreviousBalance(0);
+            setBalanceAsOfDate('');
         }
         setErrors({});
     }, [customerToEdit]);
@@ -64,6 +67,9 @@ const CustomerForm: React.FC<{
         }
         if (milkPrice <= 0) newErrors.milkPrice = "Price must be a positive number.";
         if (defaultQuantity <= 0) newErrors.defaultQuantity = "Quantity must be a positive number.";
+        if (!customerToEdit && previousBalance !== 0 && !balanceAsOfDate) {
+            newErrors.balanceAsOfDate = "Date is required if opening balance is not zero.";
+        }
         
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -73,7 +79,7 @@ const CustomerForm: React.FC<{
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            onSubmit({ name, address, phone, milkPrice, defaultQuantity, status });
+            onSubmit({ name, address, phone, milkPrice, defaultQuantity, status, previousBalance, balanceAsOfDate: balanceAsOfDate || null });
         }
     };
 
@@ -94,20 +100,20 @@ const CustomerForm: React.FC<{
                 <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`mt-1 block w-full border ${errors.phone ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
                 {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
             </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Milk Price (per liter)</label>
-                <input 
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={milkPrice}
-                    onChange={e => setMilkPrice(e.target.value ? parseFloat(e.target.value) : 0)}
-                    required 
-                    className={`mt-1 block w-full border ${errors.milkPrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                />
-                {errors.milkPrice && <p className="mt-1 text-xs text-red-600">{errors.milkPrice}</p>}
-            </div>
             <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Milk Price (per liter)</label>
+                    <input 
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={milkPrice}
+                        onChange={e => setMilkPrice(e.target.value ? parseFloat(e.target.value) : 0)}
+                        required 
+                        className={`mt-1 block w-full border ${errors.milkPrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                    />
+                    {errors.milkPrice && <p className="mt-1 text-xs text-red-600">{errors.milkPrice}</p>}
+                </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
                     <select
@@ -125,32 +131,70 @@ const CustomerForm: React.FC<{
                     </select>
                     {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
                 </div>
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Status</label>
-                    <select
-                        value={status}
-                        onChange={e => setStatus(e.target.value as 'active' | 'inactive')}
-                        required
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
+            </div>
+            {!customerToEdit && (
+                <div className="p-4 bg-gray-50 border rounded-md">
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">Opening Balance (Optional)</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Balance Amount</label>
+                            <input 
+                                type="number"
+                                step="0.01"
+                                value={previousBalance}
+                                onChange={e => setPreviousBalance(e.target.value ? parseFloat(e.target.value) : 0)}
+                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            />
+                            <p className="mt-1 text-xs text-gray-500">Use a negative value for credit.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Balance as of Date</label>
+                            <input 
+                                type="date"
+                                value={balanceAsOfDate}
+                                onChange={e => setBalanceAsOfDate(e.target.value)}
+                                className={`mt-1 block w-full border ${errors.balanceAsOfDate ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                            />
+                            {errors.balanceAsOfDate && <p className="mt-1 text-xs text-red-600">{errors.balanceAsOfDate}</p>}
+                        </div>
+                    </div>
                 </div>
+            )}
+             <div>
+                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <select
+                    value={status}
+                    onChange={e => setStatus(e.target.value as 'active' | 'inactive')}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
             </div>
             <div className="flex justify-end pt-4 space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">{customerToEdit ? 'Update' : 'Add'} Customer</button>
+                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-wait">
+                    {isSubmitting ? 'Saving...' : (customerToEdit ? 'Update' : 'Add') + ' Customer'}
+                </button>
             </div>
         </form>
     );
 };
 
-const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef }) => {
+interface CustomerManagerProps {
+  customers: Customer[];
+  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+  projectRef: string | null;
+  isLegacySchema: boolean;
+}
+
+const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -165,30 +209,55 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   }, [customers, searchTerm]);
 
   const handleAddCustomer = async (customerData: Omit<Customer, 'id' | 'userId'>) => {
+    setIsSubmitting(true);
+    let dataToInsert: Partial<Omit<Customer, 'id' | 'userId'>> = customerData;
+
+    if (isLegacySchema) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { previousBalance, balanceAsOfDate, ...legacyData } = customerData;
+        dataToInsert = legacyData;
+    }
+
     try {
         const { data, error } = await supabase
             .from('customers')
-            .insert(customerData)
+            .insert(dataToInsert)
             .select()
             .single();
 
         if (error) throw error;
         
         if (data) {
-            setCustomers(prev => [...prev, data as Customer].sort((a,b) => a.name.localeCompare(b.name)));
+            const newCustomer: Customer = {
+                ...data,
+                previousBalance: (data as any).previousBalance ?? 0,
+                balanceAsOfDate: (data as any).balanceAsOfDate ?? null,
+            };
+            setCustomers(prev => [...prev, newCustomer].sort((a,b) => a.name.localeCompare(b.name)));
         }
         setIsModalOpen(false);
     } catch (error: any) {
         alert(getFriendlyErrorMessage(error));
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
   const handleEditCustomer = async (customerData: Omit<Customer, 'id' | 'userId'>) => {
     if (!customerToEdit) return;
+    setIsSubmitting(true);
+    let dataToUpdate: Partial<Omit<Customer, 'id' | 'userId'>> = customerData;
+    
+    if (isLegacySchema) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { previousBalance, balanceAsOfDate, ...legacyData } = customerData;
+        dataToUpdate = legacyData;
+    }
+
     try {
       const { data, error } = await supabase
         .from('customers')
-        .update(customerData)
+        .update(dataToUpdate)
         .eq('id', customerToEdit.id)
         .select()
         .single();
@@ -196,13 +265,19 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
       if (error) throw error;
 
       if(data) {
-        const updatedCustomer = data as Customer;
+        const updatedCustomer: Customer = {
+            ...data,
+            previousBalance: (data as any).previousBalance ?? 0,
+            balanceAsOfDate: (data as any).balanceAsOfDate ?? null,
+        };
         setCustomers(prev => prev.map(c => c.id === updatedCustomer.id ? updatedCustomer : c));
       }
       setCustomerToEdit(null);
       setIsModalOpen(false);
     } catch (error: any) {
-      alert(getFriendlyErrorMessage(error));
+        alert(getFriendlyErrorMessage(error));
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
@@ -233,16 +308,22 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleExport = () => {
-    const headers = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity', 'status'];
+    const headers = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity', 'status', 'previousBalance', 'balanceAsOfDate'];
     const csvRows = [
         headers.join(','),
-        ...customers.map(c => headers.map(h => c[h as keyof Omit<Customer, 'id' | 'userId'>]).join(','))
+        ...customers.map(c => headers.map(h => {
+          const key = h as keyof Customer;
+          if (key === 'balanceAsOfDate' || key === 'previousBalance') {
+            return c[key] ?? '';
+          }
+          return c[key as keyof Omit<Customer, 'id' | 'userId' | 'previousBalance' | 'balanceAsOfDate'>];
+        }).join(','))
     ];
     downloadCSV(csvRows.join('\n'), 'customers.csv');
   };
   
   const handleDownloadTemplate = () => {
-    const headers = 'name,address,phone,milkPrice,defaultQuantity,status';
+    const headers = 'name,address,phone,milkPrice,defaultQuantity,status,previousBalance,balanceAsOfDate';
     downloadCSV(headers, 'customer_template.csv');
   };
 
@@ -278,6 +359,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
                 defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
                 status: status as 'active' | 'inactive',
+                previousBalance: parseFloat(getColumnValue('previousBalance')) || 0,
+                balanceAsOfDate: getColumnValue('balanceAsOfDate') || null,
             };
         }).filter(customer => customer.name);
 
@@ -353,6 +436,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 onSubmit={customerToEdit ? handleEditCustomer : handleAddCustomer}
                 onClose={() => setIsModalOpen(false)}
                 customerToEdit={customerToEdit}
+                isSubmitting={isSubmitting}
             />
         </Modal>
 

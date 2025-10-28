@@ -1,10 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
-import { MilkIcon, CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, MenuIcon, XIcon, QuoteIcon } from './Icons';
+import { MilkIcon, CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, MenuIcon, XIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
 interface HomePageProps {
   content: WebsiteContent;
 }
+
+type Product = WebsiteContent['productsPage']['products'][0];
+
+const ProductCard: React.FC<{ product: Product; icon: string }> = ({ product, icon }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    const detailsToShow = [];
+    if (product.feed) detailsToShow.push({ title: 'Organic Feed', text: product.feed });
+    if (product.extraction) detailsToShow.push({ title: 'Hygienic Extraction', text: product.extraction });
+    if (product.process) detailsToShow.push({ title: 'Crafting Process', text: product.process });
+
+    return (
+        <div className="bg-white p-8 rounded-lg shadow-md flex flex-col transition-all duration-300">
+            <div className="text-5xl mb-4 text-center">{icon}</div>
+            <h3 className="text-xl font-bold mb-2 text-center">{product.name}</h3>
+            <p className="text-gray-600 text-justify flex-grow">{product.description}</p>
+            {detailsToShow.length > 0 && (
+                <div className="mt-6">
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="w-full flex justify-center items-center px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
+                    >
+                        {isExpanded ? 'Show Less' : 'Learn More'}
+                        {isExpanded ? <ChevronUpIcon className="h-4 w-4 ml-2" /> : <ChevronDownIcon className="h-4 w-4 ml-2" />}
+                    </button>
+                    {isExpanded && (
+                        <div className="mt-4 space-y-4 border-t pt-4 text-left">
+                            {detailsToShow.map(detail => (
+                                <div key={detail.title}>
+                                    <h4 className="font-semibold text-gray-800">{detail.title}</h4>
+                                    <p className="text-gray-600 text-sm text-justify">{detail.text}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const HomePage: React.FC<HomePageProps> = ({ content }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -138,27 +179,16 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
 
         {/* Products Section */}
         <section id="products" className="py-16 bg-gray-50">
-          <div className="container mx-auto px-6 text-center">
-            <h2 className="text-3xl font-bold text-gray-800">{content.productsSection.title}</h2>
-            <p className="mt-2 text-gray-600 mb-12">{content.productsSection.subtitle}</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
-                  <div className="text-5xl mb-4">🥛</div>
-                  <h3 className="text-xl font-bold mb-2">Pure Buffalo Milk</h3>
-                  <p className="text-gray-600">Rich and creamy, delivered fresh from our farm to your door.</p>
-                </div>
-                <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
-                  <div className="text-5xl mb-4">🐄</div>
-                  <h3 className="text-xl font-bold mb-2">Fresh Cow Milk</h3>
-                  <p className="text-gray-600">Nutritious and wholesome, perfect for the entire family.</p>
-                </div>
-                 <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl hover:-translate-y-2 transition-transform duration-300">
-                  <div className="text-5xl mb-4">🧀</div>
-                  <h3 className="text-xl font-bold mb-2">Homemade Paneer</h3>
-                  <p className="text-gray-600">Soft and delicious, made from our 100% organic milk.</p>
+            <div className="container mx-auto px-6 text-center">
+                <h2 className="text-3xl font-bold text-gray-800">{content.productsSection.title}</h2>
+                <p className="mt-2 text-gray-600 mb-12">{content.productsSection.subtitle}</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    {content.productsPage.products.map((product, index) => {
+                        const icons = ['🥛', '🐄', '🧀'];
+                        return <ProductCard key={index} product={product} icon={icons[index % icons.length]} />;
+                    })}
                 </div>
             </div>
-          </div>
         </section>
 
         {/* Testimonials Section */}

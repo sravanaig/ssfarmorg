@@ -252,8 +252,15 @@ CREATE TABLE IF NOT EXISTS public.customers (
     phone text NOT NULL,
     "milkPrice" real NOT NULL,
     "defaultQuantity" real NOT NULL DEFAULT 1,
-    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive'))
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    "previousBalance" real NOT NULL DEFAULT 0,
+    "balanceAsOfDate" date
 );
+
+-- (FIX) Add balance columns to customers table if they don't exist.
+-- This handles schema migrations for users with older database versions and fixes "column does not exist" errors.
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "previousBalance" real NOT NULL DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "balanceAsOfDate" date;
 
 CREATE TABLE IF NOT EXISTS public.orders (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -385,12 +392,13 @@ DROP FUNCTION IF EXISTS public.create_new_user(p_email text, p_password text, p_
         <div className="bg-white border border-red-200 shadow-lg rounded-lg p-6 max-w-4xl mx-auto" role="alert">
             <h2 className="text-2xl font-bold text-red-600">Action Required: Database Fix</h2>
             <div className="mt-4 text-gray-700 space-y-4">
-                 <p>An error related to your database setup was detected. This usually happens when your user account is missing its profile and role, or has the wrong role assigned.</p>
-                 <p className="mt-2">To fix this, please carefully follow all the steps below.</p>
+                 <p>It looks like your app's code and your database are out of sync. This is a common issue and is easy to fix!</p>
+                 <p className="font-semibold">The script below will safely update your database schema without deleting any of your data.</p>
                 {errorMessage && (
                     <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                        <p className="font-semibold text-red-700">Specific Error Message:</p>
-                        <p className="text-red-600 text-sm mt-1">{errorMessage}</p>
+                        <p className="font-semibold text-red-700">Specific Error Detected:</p>
+                        <p className="text-red-600 text-sm mt-1 font-mono">{errorMessage}</p>
+                        <p className="text-red-800 text-sm mt-2">This error usually means a database column is missing or Supabase's internal "schema cache" is out of date. Running the setup script below is the correct solution.</p>
                     </div>
                 )}
                 

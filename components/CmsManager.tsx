@@ -270,6 +270,17 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
                             />
                         </div>
                         {renderField('Image URL', product.image, (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'image'))}
+                        {product.name.toLowerCase().includes('milk') && (
+                            <>
+                                {renderField('Organic Feed', product.feed || '', (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'feed'), true)}
+                                {renderField('Hygienic Extraction', product.extraction || '', (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'extraction'), true)}
+                            </>
+                        )}
+                        {product.name.toLowerCase().includes('paneer') && (
+                            <>
+                                {renderField('Crafting Process', product.process || '', (e) => handleInputChange('productsPage', 'products', e.target.value, index, 'process'), true)}
+                            </>
+                        )}
                      </div>
                 ))}
                 <div className="mt-4">

@@ -271,12 +271,13 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const result = e.target?.result;
-            if (typeof result !== 'string' || !result) {
+            const text = e.target?.result;
+            // Fix: Added a type guard to ensure the file content is a string before processing.
+            // The FileReader's result can be an ArrayBuffer, which would cause a type error on '.split()'.
+            if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
             }
-            const text = result;
             const rows = text.split('\n').filter(row => row.trim() !== '');
             if (rows.length < 2) { alert("CSV file is empty or contains only a header."); return; }
             const header = rows[0].split(',').map(h => h.trim());

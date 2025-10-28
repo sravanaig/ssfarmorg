@@ -77,19 +77,42 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     const endDate = new Date(Date.UTC(year, month, 0));
 
     return filteredCustomers.map(customer => {
-        // Previous Balance Calculation
-        const historicalDeliveries = deliveries.filter(d => {
-            const deliveryDate = new Date(d.date + 'T00:00:00Z');
-            return d.customerId === customer.id && deliveryDate < startDate;
-        });
-        const historicalPayments = payments.filter(p => {
-            const paymentDate = new Date(p.date + 'T00:00:00Z');
-            return p.customerId === customer.id && paymentDate < startDate;
-        });
+        // Previous Balance Calculation (NEW LOGIC)
+        let previousBalance = 0;
+        
+        if (customer.balanceAsOfDate && customer.previousBalance != null) {
+            const openingBalanceDate = new Date(customer.balanceAsOfDate + 'T00:00:00Z');
+            
+            previousBalance = customer.previousBalance;
 
-        const totalHistoricalDue = historicalDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
-        const totalHistoricalPaid = historicalPayments.reduce((sum, p) => sum + p.amount, 0);
-        const previousBalance = totalHistoricalDue - totalHistoricalPaid;
+            const interimDeliveries = deliveries.filter(d => {
+                const deliveryDate = new Date(d.date + 'T00:00:00Z');
+                return d.customerId === customer.id && deliveryDate >= openingBalanceDate && deliveryDate < startDate;
+            });
+            const interimPayments = payments.filter(p => {
+                const paymentDate = new Date(p.date + 'T00:00:00Z');
+                return p.customerId === customer.id && paymentDate >= openingBalanceDate && paymentDate < startDate;
+            });
+            
+            const totalInterimDue = interimDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+            const totalInterimPaid = interimPayments.reduce((sum, p) => sum + p.amount, 0);
+
+            previousBalance += (totalInterimDue - totalInterimPaid);
+        } else {
+            // Fallback to original full historical calculation
+            const historicalDeliveries = deliveries.filter(d => {
+                const deliveryDate = new Date(d.date + 'T00:00:00Z');
+                return d.customerId === customer.id && deliveryDate < startDate;
+            });
+            const historicalPayments = payments.filter(p => {
+                const paymentDate = new Date(p.date + 'T00:00:00Z');
+                return p.customerId === customer.id && paymentDate < startDate;
+            });
+
+            const totalHistoricalDue = historicalDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+            const totalHistoricalPaid = historicalPayments.reduce((sum, p) => sum + p.amount, 0);
+            previousBalance = totalHistoricalDue - totalHistoricalPaid;
+        }
 
         // Current Month Calculations
         const deliveriesForPeriod = deliveries.filter(d => {
@@ -418,12 +441,13 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const result = e.target?.result;
-            if (typeof result !== 'string' || !result) {
+            const text = e.target?.result;
+            // Fix: Added a type guard to ensure the file content is a string before processing.
+            // The FileReader's result can be an ArrayBuffer, which would cause a type error on '.split()'.
+            if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
             }
-            const text = result;
 
             const rows = text.split('\n').filter(row => row.trim() !== '');
             if (rows.length < 2) throw new Error("CSV is empty or has only a header.");

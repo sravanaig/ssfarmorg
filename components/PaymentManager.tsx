@@ -85,17 +85,31 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
 
   const customerBalances = useMemo(() => {
     return customers.map(customer => {
-      const totalDue = deliveries
-        .filter(d => d.customerId === customer.id)
-        .reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
-      
-      const totalPaid = payments
-        .filter(p => p.customerId === customer.id)
-        .reduce((sum, p) => sum + p.amount, 0);
+      let balance = 0;
+      if (customer.balanceAsOfDate && customer.previousBalance != null) {
+          const openingBalanceDate = new Date(customer.balanceAsOfDate + 'T00:00:00Z');
+          const subsequentDeliveries = deliveries.filter(d => d.customerId === customer.id && new Date(d.date + 'T00:00:00Z') >= openingBalanceDate);
+          const subsequentPayments = payments.filter(p => p.customerId === customer.id && new Date(p.date + 'T00:00:00Z') >= openingBalanceDate);
+
+          const totalSubsequentDue = subsequentDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+          const totalSubsequentPaid = subsequentPayments.reduce((sum, p) => sum + p.amount, 0);
+
+          balance = customer.previousBalance + totalSubsequentDue - totalSubsequentPaid;
+      } else {
+          // Fallback to full calculation
+          const totalDue = deliveries
+            .filter(d => d.customerId === customer.id)
+            .reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+          
+          const totalPaid = payments
+            .filter(p => p.customerId === customer.id)
+            .reduce((sum, p) => sum + p.amount, 0);
+          balance = totalDue - totalPaid;
+      }
 
       return {
         ...customer,
-        balance: totalDue - totalPaid,
+        balance,
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [customers, deliveries, payments]);
