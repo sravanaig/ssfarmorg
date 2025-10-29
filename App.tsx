@@ -485,13 +485,24 @@ const App: React.FC = () => {
   const handleSendOtp = async (phone: string): Promise<{ success: boolean; error?: string }> => {
     const formattedPhone = formatPhoneNumber(phone);
     
-    const { data: customer, error: customerError } = await supabase
-        .from('customers')
-        .select('id')
-        .eq('phone', formattedPhone)
-        .single();
+    const { data: customerExists, error: rpcError } = await supabase
+        .rpc('customer_exists_by_phone', { p_phone: formattedPhone });
+
+    if (rpcError) {
+        // Log the full error object for debugging
+        console.error("Error checking customer existence:", JSON.stringify(rpcError, null, 2));
+        
+        // Provide a more specific error message if the function is missing
+        if (rpcError.code === '42883' || rpcError.code === '42501' || rpcError.code === 'PGRST202') { // 42883: function does not exist, 42501: permission denied, PGRST202: not in schema cache
+             return { success: false, error: 'Database configuration error. Please ask the administrator to run the latest setup script from the Database Helper page.' };
+        }
+        
+        // Provide a clearer, user-friendly error from the database if available
+        const userFriendlyMessage = rpcError.message ? `Could not verify number: ${rpcError.message}` : 'There was a problem verifying your number. Please try again.';
+        return { success: false, error: userFriendlyMessage };
+    }
     
-    if (customerError || !customer) {
+    if (!customerExists) {
         return { success: false, error: 'No customer account found with this mobile number.' };
     }
 
@@ -518,15 +529,15 @@ const App: React.FC = () => {
       }
   
       if (data.user) {
-          // Link the auth user to the customer profile
-          const { error: updateError } = await supabase
-              .from('customers')
-              .update({ userId: data.user.id })
-              .eq('phone', formattedPhone);
+          // Securely link the auth user to the customer profile via RPC.
+          // This bypasses RLS for the one-time linking action.
+          const { error: rpcError } = await supabase
+              .rpc('link_customer_to_auth_user', { p_phone: formattedPhone });
           
-          if (updateError) {
+          if (rpcError) {
               await supabase.auth.signOut();
-              return { success: false, error: `Could not link your account. ${getFriendlyErrorMessage(updateError)}` };
+              console.error('Error linking customer account:', rpcError);
+              return { success: false, error: `Could not link your account. Please contact support.` };
           }
       }
       
@@ -576,12 +587,12 @@ const App: React.FC = () => {
                            <OrderManager customers={customers} orders={orders} setOrders={setOrders} />
                         )}
                         {staffSubView === 'deliveries' && (
-                           <StaffDeliveryManager 
-                                customers={customers} 
-                                orders={orders} 
-                                pendingDeliveries={pendingDeliveries} 
-                                setPendingDeliveries={setPendingDeliveries} 
-                           />
+                            <StaffDeliveryManager
+                                customers={customers}
+                                orders={orders}
+                                pendingDeliveries={pendingDeliveries}
+                                setPendingDeliveries={setPendingDeliveries}
+                            />
                         )}
                     </main>
                 </div>
@@ -589,133 +600,84 @@ const App: React.FC = () => {
         );
     }
     
-    // Admin View
-    const renderAdminView = () => {
-        switch (view) {
-          case 'dashboard':
-            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />;
-          case 'customers':
-            return <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />;
-          case 'logins':
-            return <UserManager users={managedUsers} setUsers={setManagedUsers} />;
-          case 'orders':
-            return <OrderManager customers={customers} orders={orders} setOrders={setOrders} />;
-          case 'deliveries':
-            return <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />;
-          case 'calendar':
-            return <CalendarView customers={customers} deliveries={deliveries} />;
-          case 'delivery_approvals':
-            return <DeliveryApprovalManager 
-                customers={customers} 
-                pendingDeliveries={pendingDeliveries} 
-                setPendingDeliveries={setPendingDeliveries} 
-                deliveries={deliveries}
-                setDeliveries={setDeliveries}
-            />;
-          case 'bills':
-            return <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} />;
-          case 'payments':
-            return <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />;
-          case 'cms':
-            return <CmsManager content={websiteContent} setContent={setWebsiteContent} />;
-          case 'database':
-            return <DatabaseHelper projectRef={projectRef} errorMessage={fetchError?.replace('SCHEMA_MISMATCH: ', '') || ''} />;
-          default:
-            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />;
-        }
-    };
-
+    // Admin view
     return (
         <div className="flex h-screen bg-gray-100 font-sans">
-            <div className={`fixed inset-0 z-20 bg-black bg-opacity-50 transition-opacity lg:hidden ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSidebarOpen(false)}></div>
-            <SideNav activeView={view} setView={handleSetView} isOpen={isSidebarOpen} setOpen={setSidebarOpen} userRole={userRole} />
-    
+            <SideNav activeView={view} setView={handleSetView} isOpen={isSidebarOpen} setOpen={setSidebarOpen} userRole={userRole}/>
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200 lg:justify-end lg:space-x-4">
-                  <button onClick={() => setSidebarOpen(true)} className="text-gray-500 focus:outline-none lg:hidden">
-                    <MenuIcon className="h-6 w-6" />
-                  </button>
-                  <div className="flex items-center space-x-2">
-                    <MilkIcon className="h-8 w-8 text-blue-600"/>
-                    <h1 className="text-2xl font-bold text-gray-800">ssfarmorganic</h1>
-                  </div>
-                  <button onClick={handleLogout} className="flex items-center px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
-                      <LogoutIcon className="h-5 w-5 md:mr-2" />
-                      <span className="hidden md:block">Logout</span>
-                  </button>
+                <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                    <button onClick={() => setSidebarOpen(true)} className="text-gray-500 lg:hidden">
+                        <MenuIcon className="h-6 w-6"/>
+                    </button>
+                    <h1 className="text-2xl font-bold text-gray-800 capitalize hidden md:block">{view.replace(/_/g, ' ')}</h1>
+                     <div className="flex items-center">
+                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && (
+                            <button onClick={() => setView('database')} className="mr-4 px-3 py-1.5 text-xs bg-red-100 text-red-700 border border-red-200 rounded-md hover:bg-red-200 font-semibold">
+                                DB Error! Fix Now
+                            </button>
+                        )}
+                        <button onClick={handleLogout} className="flex items-center px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                            <LogoutIcon className="h-5 w-5 md:mr-2" />
+                            <span className="hidden md:block">Logout</span>
+                        </button>
+                    </div>
                 </header>
+
                 <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                    {fetchError && !fetchError.startsWith('SCHEMA_MISMATCH:') && (
-                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
-                          <p className="font-bold">Data Fetching Error</p>
-                          <p>{fetchError}</p>
+                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' ? (
+                      <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
+                    ) : fetchError ? (
+                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+                        <p className="font-bold">Error</p>
+                        <p>{fetchError}</p>
                       </div>
+                    ) : (
+                        <>
+                            {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />}
+                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />}
+                            {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
+                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} />}
+                            {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
+                            {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} />}
+                            {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
+                            {view === 'cms' && websiteContent && <CmsManager content={websiteContent} setContent={setWebsiteContent} />}
+                            {view === 'database' && projectRef && <DatabaseHelper projectRef={projectRef} errorMessage={fetchError || ''} />}
+                        </>
                     )}
-                    {renderAdminView()}
                 </main>
             </div>
         </div>
     );
   };
-  
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
 
-  // Always show schema error first if it exists, for any user.
-  if (fetchError?.startsWith('SCHEMA_MISMATCH:')) {
-    return (
-        <div className="flex items-center justify-center min-h-screen p-4 bg-gray-100">
-            <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
-        </div>
-    );
-  }
-
-  if (!websiteContent) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <p className="text-red-600">Could not load website content. Please refresh the page.</p>
-      </div>
-    );
-  }
-
-
-  if (!isAuthenticated) {
-      if (currentPage === 'login') {
-          return <LoginPage 
-            onAdminLogin={handleAdminLogin} 
-            onSendOtp={handleSendOtp}
-            onVerifyOtp={handleVerifyOtp}
-            onBackToHome={() => setCurrentPage('home')} 
-          />;
-      }
-      
-      let pageContent;
-      switch(currentPage) {
-        case 'products':
-          pageContent = <ProductsPage content={websiteContent.productsPage} />;
-          break;
-        case 'home':
-        default:
-          pageContent = <HomePage content={websiteContent} />;
-          break;
-      }
-
-      return (
-        <SharedLayout 
-          onLoginClick={() => setCurrentPage('login')} 
-          onNavigate={setCurrentPage}
-        >
-          {pageContent}
-        </SharedLayout>
-      );
-  }
-
-  return renderDashboard();
+  return (
+    <>
+        {isLoading ? (
+            <div className="flex items-center justify-center min-h-screen">
+                <MilkIcon className="h-12 w-12 text-blue-600 animate-pulse" />
+            </div>
+        ) : isAuthenticated ? (
+            renderDashboard()
+        ) : (
+            <SharedLayout onLoginClick={() => setCurrentPage('login')} onNavigate={setCurrentPage}>
+                {currentPage === 'home' && websiteContent ? (
+                    <HomePage content={websiteContent} />
+                ) : currentPage === 'products' && websiteContent ? (
+                    <ProductsPage content={websiteContent.productsPage} />
+                ) : currentPage === 'login' ? (
+                    <LoginPage onAdminLogin={handleAdminLogin} onSendOtp={handleSendOtp} onVerifyOtp={handleVerifyOtp} onBackToHome={() => setCurrentPage('home')} />
+                ) : (
+                    // Fallback for when content is still loading
+                     <div className="flex items-center justify-center min-h-screen">
+                        <MilkIcon className="h-12 w-12 text-blue-600 animate-pulse" />
+                    </div>
+                )}
+            </SharedLayout>
+        )}
+    </>
+  );
 };
 
 export default App;

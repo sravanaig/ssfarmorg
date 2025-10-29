@@ -97,6 +97,9 @@ DROP POLICY IF EXISTS "Profile Write Access" ON public.profiles;
 DROP POLICY IF EXISTS "Authenticated users can read profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can write to profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Users can read their own profile, and admins can read all" ON public.profiles;
+-- (FIX) Drop the currently used policy names to ensure the script is re-runnable.
+DROP POLICY IF EXISTS "Users can read their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can manage their own profile" ON public.profiles;
 
 -- RLS POLICY FOR READING (SELECT):
 -- Any authenticated user can read their own profile. This is safe and non-recursive.
@@ -427,6 +430,46 @@ DROP POLICY IF EXISTS "Public can read website content" ON public.website_conten
 CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
 ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
+-- STEP 9: Create helper functions for the customer OTP login flow.
+-- These are SECURITY DEFINER to safely bypass RLS for specific, controlled actions.
+
+-- Function to check if a customer exists by phone number.
+-- Granting to 'anon' allows the login page to check for a number before sending an OTP.
+CREATE OR REPLACE FUNCTION public.customer_exists_by_phone(p_phone text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1
+    FROM public.customers
+    WHERE phone = p_phone
+  );
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.customer_exists_by_phone(text) TO anon;
+GRANT EXECUTE ON FUNCTION public.customer_exists_by_phone(text) TO authenticated;
+
+-- Function for a newly signed-in user to link their auth ID to their customer profile.
+-- It's safe because it only ever uses the ID of the *currently calling user* (auth.uid()).
+CREATE OR REPLACE FUNCTION public.link_customer_to_auth_user(p_phone text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.customers
+  SET "userId" = auth.uid()
+  WHERE phone = p_phone;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.link_customer_to_auth_user(text) TO authenticated;
+
+
 -- Cleanup old function to avoid confusion
 DROP FUNCTION IF EXISTS public.get_my_role();
 DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
@@ -452,6 +495,8 @@ DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
 DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
 DROP FUNCTION IF EXISTS public.update_user_status(uuid, text);
 DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
+DROP FUNCTION IF EXISTS public.customer_exists_by_phone(text);
+DROP FUNCTION IF EXISTS public.link_customer_to_auth_user(text);
 
 
 -- After running this, you MUST run the 'Full Setup Script' to recreate the tables.
