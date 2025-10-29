@@ -213,15 +213,21 @@ SET search_path = public
 AS $$
 DECLARE
     new_user_id uuid;
+    new_user auth.users;
 BEGIN
     IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
     -- Create user in auth schema
+    SELECT * INTO new_user FROM auth.users WHERE email = p_email;
+    IF new_user IS NOT NULL THEN
+        RAISE EXCEPTION 'User with this email already exists.';
+    END IF;
+
     new_user_id := auth.admin_create_user(
-        email := p_email,
-        password := p_password
+        p_email,
+        p_password
     );
 
     -- The handle_new_user trigger inserts a 'pending' profile. Update it to be 'approved'.
@@ -272,15 +278,28 @@ CREATE TABLE IF NOT EXISTS public.customers (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name text NOT NULL,
     address text NOT NULL,
-    phone text NOT NULL,
+    phone text,
+    email text,
+    "userId" uuid UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
     "milkPrice" real NOT NULL,
     "defaultQuantity" real NOT NULL DEFAULT 1,
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     "previousBalance" real NOT NULL DEFAULT 0,
     "balanceAsOfDate" date
 );
+-- Make phone numbers unique for login purposes.
+-- This creates a unique index that allows multiple NULL or empty string values,
+-- but ensures any actual phone number provided is unique.
+DROP INDEX IF EXISTS customers_phone_unique_not_null_idx;
+CREATE UNIQUE INDEX customers_phone_unique_not_null_idx
+ON public.customers (phone)
+WHERE phone IS NOT NULL AND phone <> '';
+
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "previousBalance" real NOT NULL DEFAULT 0;
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "balanceAsOfDate" date;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS email text;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "userId" uuid UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL;
+
 
 CREATE TABLE IF NOT EXISTS public.orders (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -334,6 +353,11 @@ CREATE POLICY "Admins can manage all customers" ON public.customers FOR ALL
 DROP POLICY IF EXISTS "Staff can view all customers" ON public.customers;
 CREATE POLICY "Staff can view all customers" ON public.customers FOR SELECT
   USING ( check_user_role('admin') OR check_user_role('staff') );
+  
+DROP POLICY IF EXISTS "Customers can view their own record" ON public.customers;
+CREATE POLICY "Customers can view their own record" ON public.customers FOR SELECT
+  USING ( auth.uid() = "userId" );
+  
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
 -- Orders Table Policies
@@ -354,6 +378,16 @@ CREATE POLICY "Admins can manage deliveries" ON public.deliveries FOR ALL
 DROP POLICY IF EXISTS "Authenticated users can view deliveries" ON public.deliveries;
 CREATE POLICY "Authenticated users can view deliveries" ON public.deliveries FOR SELECT
   USING ( check_user_role('admin') OR check_user_role('staff') );
+  
+DROP POLICY IF EXISTS "Customers can view their own deliveries" ON public.deliveries;
+CREATE POLICY "Customers can view their own deliveries" ON public.deliveries FOR SELECT
+  USING (
+    EXISTS (
+        SELECT 1 FROM public.customers c
+        WHERE c.id = "customerId" AND c."userId" = auth.uid()
+    )
+  );
+  
 ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 
 -- Pending Deliveries Table Policies
@@ -370,6 +404,16 @@ DROP POLICY IF EXISTS "Admins can manage all payments" ON public.payments;
 CREATE POLICY "Admins can manage all payments" ON public.payments FOR ALL
   USING ( check_user_role('admin') )
   WITH CHECK ( check_user_role('admin') );
+  
+DROP POLICY IF EXISTS "Customers can view their own payments" ON public.payments;
+CREATE POLICY "Customers can view their own payments" ON public.payments FOR SELECT
+  USING (
+    EXISTS (
+        SELECT 1 FROM public.customers c
+        WHERE c.id = "customerId" AND c."userId" = auth.uid()
+    )
+  );
+
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
 -- Website Content Table Policies
@@ -385,6 +429,7 @@ ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
 -- Cleanup old function to avoid confusion
 DROP FUNCTION IF EXISTS public.get_my_role();
+DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
 
 -- Script finished. All tables and policies are now correctly configured.
 `;
@@ -406,6 +451,7 @@ DROP FUNCTION IF EXISTS public.get_all_users();
 DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
 DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
 DROP FUNCTION IF EXISTS public.update_user_status(uuid, text);
+DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
 
 
 -- After running this, you MUST run the 'Full Setup Script' to recreate the tables.

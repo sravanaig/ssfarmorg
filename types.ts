@@ -9,6 +9,7 @@ export interface Customer {
   previousBalance: number;
   balanceAsOfDate: string | null;
   userId?: string;
+  email?: string;
 }
 
 export interface Delivery {

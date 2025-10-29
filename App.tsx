@@ -22,6 +22,7 @@ import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
 import CalendarView from './components/CalendarView';
+import CustomerDashboard from './components/CustomerDashboard';
 
 type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
 export type Page = 'home' | 'login' | 'products';
@@ -133,7 +134,7 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>('home');
-  const [userRole, setUserRole] = useState<Profile['role'] | null>(null);
+  const [userRole, setUserRole] = useState<Profile['role'] | 'customer' | null>(null);
   
   const [view, setView] = useState<View>('dashboard');
   const [staffSubView, setStaffSubView] = useState<'orders' | 'deliveries'>('orders');
@@ -147,7 +148,10 @@ const App: React.FC = () => {
   const [pendingDeliveries, setPendingDeliveries] = useState<PendingDelivery[]>([]);
   const [websiteContent, setWebsiteContent] = useState<WebsiteContent | null>(null);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
+  const [customerProfile, setCustomerProfile] = useState<Customer | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const formatPhoneNumber = (phone: string) => `+91${phone.replace(/\D/g, '').slice(-10)}`;
 
   const fetchPublicContent = async () => {
     try {
@@ -223,7 +227,7 @@ const App: React.FC = () => {
             while (true) {
                 const { data, error: fallbackError } = await supabase
                     .from('customers')
-                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId')
+                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId, email')
                     .order('name', { ascending: true })
                     .range(from, from + CHUNK_SIZE - 1);
 
@@ -258,6 +262,7 @@ const App: React.FC = () => {
             setPayments([]);
             setPendingDeliveries([]);
             setManagedUsers([]);
+            setCustomerProfile(null);
             await fetchPublicContent();
             return;
         }
@@ -268,84 +273,105 @@ const App: React.FC = () => {
             .eq('id', user.id)
             .single();
         
-        if (profileError && profileError.code !== 'PGRST116') {
+        if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
             throw profileError;
         }
-        
-        if (!profileData) {
-            setUserRole(null);
-            setFetchError("SCHEMA_MISMATCH: Your user profile and role could not be loaded. This is often due to a database misconfiguration. Please run the setup script in the 'Database Helper' section.");
-            await fetchPublicContent();
-            return; // Halt further data fetching.
-        }
-        
-        const role = profileData.role as Profile['role'];
-        setUserRole(role);
 
-        if (role === 'staff') {
+        if (profileData) { // User is admin or staff
+            const role = profileData.role as Profile['role'];
+            setUserRole(role);
+    
+            if (role === 'staff') {
+                const [
+                    customersData,
+                    ordersData,
+                    pendingDeliveriesData
+                ] = await Promise.all([
+                    fetchCustomersWithLegacyFallback(),
+                    fetchAll<Order>('orders'),
+                    fetchAll<PendingDelivery>('pending_deliveries')
+                ]);
+                
+                setCustomers(customersData || []);
+                setOrders(ordersData || []);
+                setPendingDeliveries(pendingDeliveriesData || []);
+                await fetchPublicContent();
+                return;
+            }
+            
+            // Admin data fetch continues here...
+            const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
+            if (usersError) throw usersError;
+            setManagedUsers((usersData as ManagedUser[]) || []);
+    
             const [
                 customersData,
+                deliveriesData,
                 ordersData,
-                pendingDeliveriesData
+                paymentsData,
+                pendingDeliveriesData,
             ] = await Promise.all([
                 fetchCustomersWithLegacyFallback(),
+                fetchAll<Delivery>('deliveries'),
                 fetchAll<Order>('orders'),
+                fetchAll<Payment>('payments'),
                 fetchAll<PendingDelivery>('pending_deliveries')
             ]);
             
+            const { data: contentData, error: contentError } = await supabase.from('website_content').select('content').single();
+    
             setCustomers(customersData || []);
+            setDeliveries(deliveriesData || []);
             setOrders(ordersData || []);
+            setPayments(paymentsData || []);
             setPendingDeliveries(pendingDeliveriesData || []);
-            await fetchPublicContent();
-            return; // End execution for staff role
-        }
-        
-        // Admin data fetch continues here...
-        const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
-        if (usersError) throw usersError;
-        setManagedUsers((usersData as ManagedUser[]) || []);
+    
+            if (contentError && contentError.code !== 'PGRST116') {
+                 throw contentError;
+            }
+    
+            if (contentData) {
+                setWebsiteContent(contentData.content as WebsiteContent);
+            } else {
+                const { data: seededContent, error: seedError } = await supabase
+                  .from('website_content')
+                  .upsert({ userId: user.id, content: defaultContent }, { onConflict: 'userId' })
+                  .select('content')
+                  .single();
+                
+                if (seedError) throw seedError;
+                if (seededContent) {
+                    setWebsiteContent(seededContent.content as WebsiteContent);
+                }
+            }
+        } else { // User might be a customer
+            const { data: customerData, error: customerError } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('userId', user.id)
+                .single();
 
-        const [
-            customersData,
-            deliveriesData,
-            ordersData,
-            paymentsData,
-            pendingDeliveriesData,
-        ] = await Promise.all([
-            fetchCustomersWithLegacyFallback(),
-            fetchAll<Delivery>('deliveries'),
-            fetchAll<Order>('orders'),
-            fetchAll<Payment>('payments'),
-            fetchAll<PendingDelivery>('pending_deliveries')
-        ]);
-        
-        const { data: contentData, error: contentError } = await supabase.from('website_content').select('content').single();
+            if (customerError && customerError.code !== 'PGRST116') {
+                throw customerError;
+            }
 
-        setCustomers(customersData || []);
-        setDeliveries(deliveriesData || []);
-        setOrders(ordersData || []);
-        setPayments(paymentsData || []);
-        setPendingDeliveries(pendingDeliveriesData || []);
-
-        if (contentError && contentError.code !== 'PGRST116') {
-             throw contentError;
-        }
-
-        if (contentData) {
-            setWebsiteContent(contentData.content as WebsiteContent);
-        } else {
-            const { data: seededContent, error: seedError } = await supabase
-              .from('website_content')
-              .upsert({ userId: user.id, content: defaultContent }, { onConflict: 'userId' })
-              .select('content')
-              .single();
-            
-            if (seedError) throw seedError;
-            if (seededContent) {
-                setWebsiteContent(seededContent.content as WebsiteContent);
+            if(customerData) {
+                setUserRole('customer');
+                setCustomerProfile(customerData as Customer);
+                // RLS will ensure only their data is fetched
+                const [deliveriesData, paymentsData] = await Promise.all([
+                    fetchAll<Delivery>('deliveries'),
+                    fetchAll<Payment>('payments')
+                ]);
+                setDeliveries(deliveriesData || []);
+                setPayments(paymentsData || []);
+                await fetchPublicContent();
+            } else {
+                // Not an admin, staff, or linked customer. Log them out.
+                 await supabase.auth.signOut();
+                 setFetchError("Your user account is not associated with an admin, staff, or customer profile. Please contact support.");
             }
         }
-
     } catch (error: any) {
         console.error('Error fetching data:', error);
         const friendlyMessage = getFriendlyErrorMessage(error);
@@ -397,6 +423,7 @@ const App: React.FC = () => {
         setPayments([]);
         setPendingDeliveries([]);
         setManagedUsers([]);
+        setCustomerProfile(null);
         fetchPublicContent();
       }
     });
@@ -406,19 +433,7 @@ const App: React.FC = () => {
     };
   }, [fetchData]);
 
-  const handleSignUp = async (email: string, pass: string): Promise<{ success: boolean; error?: string; message?: string }> => {
-    const { error } = await supabase.auth.signUp({
-        email: email,
-        password: pass,
-    });
-    if (error) {
-        console.error('Sign up error:', error.message);
-        return { success: false, error: error.message };
-    }
-    return { success: true, message: 'Sign up successful! Please check your email to confirm your account. After confirmation, an administrator must approve your account before you can log in.' };
-  };
-
-  const handleLogin = async (email: string, pass:string): Promise<{ success: boolean; error?: string }> => {
+  const handleAdminLogin = async (email: string, pass:string): Promise<{ success: boolean; error?: string }> => {
     const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: email,
         password: pass,
@@ -434,35 +449,89 @@ const App: React.FC = () => {
     }
 
     if (signInData.user) {
-        // After successful authentication, check the profile status
+        // After successful authentication, check if user is admin/staff and approved
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('status')
             .eq('id', signInData.user.id)
             .single();
 
-        // If profile doesn't exist, this implies a problem with the new user trigger. Log them out.
-        if (profileError || !profile) {
-            await supabase.auth.signOut();
-            return { success: false, error: "Could not retrieve your user profile. Please contact an administrator." };
+        if (profileError && profileError.code !== 'PGRST116') {
+             await supabase.auth.signOut();
+             return { success: false, error: "Could not retrieve your user profile. Please contact an administrator." };
         }
+        
+        if (profile) { // This is an admin/staff user
+            if (profile.status === 'pending') {
+                await supabase.auth.signOut();
+                return { success: false, error: "Your account is pending approval from an administrator." };
+            }
 
-        if (profile.status === 'pending') {
-            await supabase.auth.signOut();
-            return { success: false, error: "Your account is pending approval from an administrator." };
+            if (profile.status === 'rejected') {
+                await supabase.auth.signOut();
+                return { success: false, error: "Your account has been rejected. Please contact an administrator for assistance." };
+            }
+        } else {
+             await supabase.auth.signOut();
+             return { success: false, error: "This is not a valid admin or staff account." };
         }
-
-        if (profile.status === 'rejected') {
-            await supabase.auth.signOut();
-            return { success: false, error: "Your account has been rejected. Please contact an administrator for assistance." };
-        }
-
-        // If status is 'approved', login proceeds normally. onAuthStateChange will handle the rest.
+        
         return { success: true };
     }
 
-    // Fallback for unexpected cases
     return { success: false, error: 'An unexpected error occurred during login.' };
+  };
+
+  const handleSendOtp = async (phone: string): Promise<{ success: boolean; error?: string }> => {
+    const formattedPhone = formatPhoneNumber(phone);
+    
+    const { data: customer, error: customerError } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('phone', formattedPhone)
+        .single();
+    
+    if (customerError || !customer) {
+        return { success: false, error: 'No customer account found with this mobile number.' };
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+        phone: formattedPhone,
+    });
+
+    if (error) {
+        return { success: false, error: getFriendlyErrorMessage(error) };
+    }
+    return { success: true };
+  };
+
+  const handleVerifyOtp = async (phone: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+      const formattedPhone = formatPhoneNumber(phone);
+      const { data, error } = await supabase.auth.verifyOtp({
+          phone: formattedPhone,
+          token: otp,
+          type: 'sms'
+      });
+  
+      if (error) {
+          return { success: false, error: getFriendlyErrorMessage(error) };
+      }
+  
+      if (data.user) {
+          // Link the auth user to the customer profile
+          const { error: updateError } = await supabase
+              .from('customers')
+              .update({ userId: data.user.id })
+              .eq('phone', formattedPhone);
+          
+          if (updateError) {
+              await supabase.auth.signOut();
+              return { success: false, error: `Could not link your account. ${getFriendlyErrorMessage(updateError)}` };
+          }
+      }
+      
+      // onAuthStateChange will handle fetching data and setting the session
+      return { success: true };
   };
 
   const handleLogout = async () => {
@@ -478,6 +547,10 @@ const App: React.FC = () => {
   };
   
   const renderDashboard = () => {
+    if (userRole === 'customer' && customerProfile) {
+        return <CustomerDashboard customer={customerProfile} deliveries={deliveries} payments={payments} onLogout={handleLogout} />;
+    }
+
     if (userRole === 'staff') {
         return (
             <div className="flex h-screen bg-gray-100 font-sans">
@@ -613,7 +686,12 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
       if (currentPage === 'login') {
-          return <LoginPage onLogin={handleLogin} onBackToHome={() => setCurrentPage('home')} />;
+          return <LoginPage 
+            onAdminLogin={handleAdminLogin} 
+            onSendOtp={handleSendOtp}
+            onVerifyOtp={handleVerifyOtp}
+            onBackToHome={() => setCurrentPage('home')} 
+          />;
       }
       
       let pageContent;

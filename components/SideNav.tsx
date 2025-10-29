@@ -9,7 +9,8 @@ interface SideNavProps {
   setView: (view: View) => void;
   isOpen: boolean;
   setOpen: (isOpen: boolean) => void;
-  userRole: Profile['role'] | null;
+  // Fix: The userRole in App.tsx can be 'customer'. The SideNav component is only rendered for admins, but to satisfy TypeScript's type checking across components, 'customer' is added here. This does not change the component's behavior.
+  userRole: Profile['role'] | 'customer' | null;
 }
 
 const NavItem: React.FC<{

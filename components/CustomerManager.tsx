@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Customer } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, ClipboardIcon, CheckIcon, SearchIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -28,6 +28,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
     const [milkPrice, setMilkPrice] = useState(90);
     const [defaultQuantity, setDefaultQuantity] = useState(1);
     const [status, setStatus] = useState<'active' | 'inactive'>('active');
@@ -39,7 +40,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         if (customerToEdit) {
             setName(customerToEdit.name);
             setAddress(customerToEdit.address);
-            setPhone(customerToEdit.phone);
+            setPhone(customerToEdit.phone ? customerToEdit.phone.replace('+91', '') : '');
+            setEmail(customerToEdit.email || '');
             setMilkPrice(customerToEdit.milkPrice);
             setDefaultQuantity(customerToEdit.defaultQuantity);
             setStatus(customerToEdit.status || 'active');
@@ -49,6 +51,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
             setName('');
             setAddress('');
             setPhone('');
+            setEmail('');
             setMilkPrice(90);
             setDefaultQuantity(1);
             setStatus('active');
@@ -62,8 +65,12 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         const newErrors: { [key: string]: string } = {};
         if (!name.trim()) newErrors.name = "Name is required.";
         if (!address.trim()) newErrors.address = "Address is required.";
-        if (phone && !/^\+?[\d\s-]{10,15}$/.test(phone)) {
-            newErrors.phone = "Please enter a valid phone number.";
+        if (phone && !/^\d{10}$/.test(phone)) {
+            newErrors.phone = "Please enter a valid 10-digit mobile number.";
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (email && !emailRegex.test(email)) {
+             newErrors.email = "Please enter a valid email address.";
         }
         if (milkPrice <= 0) newErrors.milkPrice = "Price must be a positive number.";
         if (defaultQuantity <= 0) newErrors.defaultQuantity = "Quantity must be a positive number.";
@@ -79,7 +86,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            onSubmit({ name, address, phone, milkPrice, defaultQuantity, status, previousBalance, balanceAsOfDate: balanceAsOfDate || null });
+            const formattedPhone = phone ? `+91${phone.replace(/\D/g, '').slice(-10)}` : '';
+            onSubmit({ name, address, phone: formattedPhone, email, milkPrice, defaultQuantity, status, previousBalance, balanceAsOfDate: balanceAsOfDate || null });
         }
     };
 
@@ -95,10 +103,20 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                 <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className={`mt-1 block w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
                 {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
             </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Phone</label>
-                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`mt-1 block w-full border ${errors.phone ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
-                {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Mobile Number (for Login)</label>
+                    <div className="mt-1 flex">
+                        <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
+                        <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
+                    </div>
+                    {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Email</label>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={`mt-1 block w-full border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                    {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -204,7 +222,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     return customers.filter(customer =>
       customer.name.toLowerCase().includes(lowercasedFilter) ||
       customer.address.toLowerCase().includes(lowercasedFilter) ||
-      customer.phone.toLowerCase().includes(lowercasedFilter)
+      customer.phone.toLowerCase().includes(lowercasedFilter) ||
+      (customer.email && customer.email.toLowerCase().includes(lowercasedFilter))
     );
   }, [customers, searchTerm]);
 
@@ -274,7 +293,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
       }
       setCustomerToEdit(null);
       setIsModalOpen(false);
-    } catch (error: any) {
+    } catch (error: any)
+    {
         alert(getFriendlyErrorMessage(error));
     } finally {
         setIsSubmitting(false);
@@ -308,22 +328,22 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleExport = () => {
-    const headers = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity', 'status', 'previousBalance', 'balanceAsOfDate'];
+    const headers = ['name', 'address', 'phone', 'email', 'milkPrice', 'defaultQuantity', 'status', 'previousBalance', 'balanceAsOfDate'];
     const csvRows = [
         headers.join(','),
         ...customers.map(c => headers.map(h => {
           const key = h as keyof Customer;
-          if (key === 'balanceAsOfDate' || key === 'previousBalance') {
+          if (key === 'balanceAsOfDate' || key === 'previousBalance' || key === 'email') {
             return c[key] ?? '';
           }
-          return c[key as keyof Omit<Customer, 'id' | 'userId' | 'previousBalance' | 'balanceAsOfDate'>];
+          return c[key as keyof Omit<Customer, 'id' | 'userId' | 'previousBalance' | 'balanceAsOfDate' | 'email'>];
         }).join(','))
     ];
     downloadCSV(csvRows.join('\n'), 'customers.csv');
   };
   
   const handleDownloadTemplate = () => {
-    const headers = 'name,address,phone,milkPrice,defaultQuantity,status,previousBalance,balanceAsOfDate';
+    const headers = 'name,address,phone,email,milkPrice,defaultQuantity,status,previousBalance,balanceAsOfDate';
     downloadCSV(headers, 'customer_template.csv');
   };
 
@@ -352,10 +372,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 status = 'active';
             }
 
+            const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
+            const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
+
             return {
                 name: getColumnValue('name'),
                 address: getColumnValue('address'),
-                phone: getColumnValue('phone').replace('?',''),
+                phone: phoneFormatted,
+                email: getColumnValue('email'),
                 milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
                 defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
                 status: status as 'active' | 'inactive',
@@ -450,10 +474,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                 <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                     <tr>
                                         <th scope="col" className="px-6 py-3">Name</th>
-                                        <th scope="col" className="px-6 py-3">Address</th>
-                                        <th scope="col" className="px-6 py-3">Phone</th>
-                                        <th scope="col" className="px-6 py-3">Milk Price</th>
-                                        <th scope="col" className="px-6 py-3">Default Qty</th>
+                                        <th scope="col" className="px-6 py-3">Login Phone</th>
                                         <th scope="col" className="px-6 py-3">Status</th>
                                         <th scope="col" className="px-6 py-3 text-right">Actions</th>
                                     </tr>
@@ -462,20 +483,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                     {filteredCustomers.map(customer => (
                                         <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
                                             <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
-                                            <td className="px-6 py-4">{customer.address}</td>
-                                            <td className="px-6 py-4">{customer.phone}</td>
-                                            <td className="px-6 py-4">₹{customer.milkPrice.toFixed(2)}</td>
-                                            <td className="px-6 py-4">{customer.defaultQuantity} L</td>
+                                            <td className="px-6 py-4">{customer.phone || 'N/A'}</td>
                                             <td className="px-6 py-4">
                                                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                                                     customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                                                 }`}>
                                                     {customer.status}
                                                 </span>
+                                                {customer.userId && (
+                                                    <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 items-center"><CheckIcon className="h-3 w-3 mr-1" /> Login Active</span>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4"><EditIcon className="w-5 h-5"/></button>
-                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800"><TrashIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4 inline-block align-middle"><EditIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle"><TrashIcon className="w-5 h-5"/></button>
                                             </td>
                                         </tr>
                                     ))}
@@ -498,9 +519,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                         </div>
                                         <div className="text-sm text-gray-600 space-y-1">
                                             <p><strong className="font-medium">Address:</strong> {customer.address}</p>
-                                            <p><strong className="font-medium">Phone:</strong> {customer.phone}</p>
-                                            <p><strong className="font-medium">Price:</strong> ₹{customer.milkPrice.toFixed(2)} / liter</p>
-                                            <p><strong className="font-medium">Default Qty:</strong> {customer.defaultQuantity} L</p>
+                                            <p><strong className="font-medium">Phone:</strong> {customer.phone || 'N/A'}</p>
+                                            {customer.userId && (
+                                                <p className="font-semibold text-green-600 flex items-center"><CheckIcon className="h-4 w-4 mr-1"/> Login Active</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
