@@ -50,35 +50,43 @@ GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO service_role;
 GRANT ALL ON SCHEMA public TO postgres;
 
--- STEP 2: Create a 'profiles' table to store user roles.
--- This table links to auth users and defaults new users to the 'staff' role.
+-- STEP 2: Create a 'profiles' table to store user roles and approval status.
+-- This table links to auth users and defaults new users to 'staff' role and 'pending' status.
 CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    role text NOT NULL DEFAULT 'staff' CHECK (role IN ('admin', 'staff'))
+    role text NOT NULL DEFAULT 'staff' CHECK (role IN ('admin', 'staff')),
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected'))
 );
 
--- STEP 3: Create a helper function to securely get the current user's role.
--- Using 'SECURITY DEFINER' allows this function to bypass RLS policies on the 'profiles' table,
--- which prevents an infinite recursion error when policies on that same table call this function.
-CREATE OR REPLACE FUNCTION get_my_role()
-RETURNS TEXT
+-- (FIX) Add status column to profiles table if it doesn't exist for backward compatibility.
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected'));
+
+-- STEP 3: Create a helper function to securely check the CALLING user's role.
+-- This function is SECURITY DEFINER, so it bypasses RLS to read the user's role from the profiles table.
+-- It is safe because it only ever checks the role of the currently authenticated user (auth.uid()).
+-- This function can be safely used in RLS policies for ANY table EXCEPT the 'profiles' table itself to avoid recursion.
+CREATE OR REPLACE FUNCTION check_user_role(role_to_check TEXT)
+RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
+STABLE -- Add STABLE to hint to the planner and prevent inlining.
 SET search_path = public
 AS $$
 BEGIN
-  RETURN (
-    SELECT role
+  RETURN EXISTS (
+    SELECT 1
     FROM public.profiles
-    WHERE id = auth.uid()
+    WHERE id = auth.uid() AND role = role_to_check AND status = 'approved'
   );
 END;
 $$;
 -- Grant permission for any logged-in user to call this function.
-GRANT EXECUTE ON FUNCTION get_my_role() TO authenticated;
+GRANT EXECUTE ON FUNCTION check_user_role(TEXT) TO authenticated;
 
 
 -- STEP 4: Apply Row Level Security (RLS) to the 'profiles' table.
+-- (FIX) RLS policies for 'profiles' are rewritten to be non-recursive. They DO NOT call check_user_role().
+-- Admin actions on this table are handled by SECURITY DEFINER functions which bypass RLS.
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 
 -- Clean slate: drop any existing policies on the profiles table to avoid conflicts.
@@ -88,35 +96,35 @@ DROP POLICY IF EXISTS "Profile Read Access" ON public.profiles;
 DROP POLICY IF EXISTS "Profile Write Access" ON public.profiles;
 DROP POLICY IF EXISTS "Authenticated users can read profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can write to profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Users can read their own profile, and admins can read all" ON public.profiles;
 
+-- RLS POLICY FOR READING (SELECT):
+-- Any authenticated user can read their own profile. This is safe and non-recursive.
+CREATE POLICY "Users can read their own profile" ON public.profiles FOR SELECT
+  USING (
+    auth.uid() = id
+  );
 
--- POLICY FOR READING (SELECT):
--- Allow any authenticated user to read from the profiles table.
--- This is a simpler and more robust approach to prevent recursion errors,
--- as role information is not highly sensitive in this application's context.
-CREATE POLICY "Authenticated users can read profiles" ON public.profiles FOR SELECT
-  USING ( auth.role() = 'authenticated' );
-
--- POLICY FOR WRITING (INSERT, UPDATE, DELETE):
--- Only admins can write to the profiles table.
--- This check uses the get_my_role() function which will now succeed
--- because its internal SELECT is permitted by the broad read policy above.
-CREATE POLICY "Admins can write to profiles" ON public.profiles FOR ALL
-  USING ( get_my_role() = 'admin' )
-  WITH CHECK ( get_my_role() = 'admin' );
+-- RLS POLICY FOR WRITING (INSERT, UPDATE, DELETE):
+-- For direct table access, users can only modify their own profile.
+-- Admin modifications are handled by SECURITY DEFINER RPCs which bypass this policy.
+CREATE POLICY "Users can manage their own profile" ON public.profiles FOR ALL
+  USING ( auth.uid() = id )
+  WITH CHECK ( auth.uid() = id );
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 
 -- STEP 5: Create a trigger to automatically create a profile when a new user signs up.
+-- The profile will be created with the default 'pending' status.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
-  INSERT INTO public.profiles (id, role)
-  VALUES (new.id, 'staff');
+  INSERT INTO public.profiles (id, role, status)
+  VALUES (new.id, 'staff', 'pending');
   RETURN new;
 END;
 $$;
@@ -127,15 +135,18 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 
--- STEP 6: (NEW) Create secure functions for admins to manage users.
--- These are necessary because client-side code cannot access 'auth.users' directly.
+-- STEP 6: Create secure functions for admins to manage users.
+-- These functions are SECURITY DEFINER, so they bypass RLS and can perform admin actions safely.
+-- The check for admin privileges inside them is safe because it's not part of an RLS policy evaluation context.
 
 -- Function to get all users, callable by admins only.
+DROP FUNCTION IF EXISTS public.get_all_users();
 CREATE OR REPLACE FUNCTION get_all_users()
 RETURNS TABLE (
     id uuid,
     email text,
     role text,
+    status text,
     created_at timestamptz
 )
 LANGUAGE plpgsql
@@ -143,29 +154,26 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-    -- Security check: ensure the current user is an admin before proceeding.
-    IF get_my_role() != 'admin' THEN
+    IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
-    -- If the security check passes, return the user data.
     RETURN QUERY
     SELECT
         u.id,
         u.email::text,
-        COALESCE(p.role, 'staff'), -- Fix: Use COALESCE to handle cases where a profile might be missing for a user.
+        COALESCE(p.role, 'staff'),
+        COALESCE(p.status, 'pending'),
         u.created_at
     FROM auth.users u
     LEFT JOIN public.profiles p ON u.id = p.id;
 END;
 $$;
-
--- Grant permission for authenticated users to call this function.
--- The internal security check will handle authorization.
 GRANT EXECUTE ON FUNCTION get_all_users() TO authenticated;
 
 
 -- Function to delete a user, callable by admins only.
+DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
 CREATE OR REPLACE FUNCTION delete_user_by_id(target_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -173,27 +181,20 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-    -- Security check: ensure the current user is an admin.
-    IF get_my_role() != 'admin' THEN
+    IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
-    
-    -- Security check: prevent an admin from deleting themselves.
     IF auth.uid() = target_user_id THEN
         RAISE EXCEPTION 'Admins cannot delete their own account';
     END IF;
-
-    -- Delete the user from the auth schema.
-    -- The profile row will be deleted automatically due to the ON DELETE CASCADE constraint.
+    
     PERFORM auth.admin_delete_user(target_user_id);
 END;
 $$;
-
--- Grant permission for authenticated users to call this function.
--- The internal check will handle authorization.
-GRANT EXECUTE ON FUNCTION delete_user_by_id(target_user_id uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION delete_user_by_id(uuid) TO authenticated;
 
 -- Function to create a new user, callable by admins only.
+DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
 CREATE OR REPLACE FUNCTION create_new_user(
     p_email text,
     p_password text,
@@ -203,6 +204,7 @@ RETURNS TABLE (
     id uuid,
     email text,
     role text,
+    status text,
     created_at timestamptz
 )
 LANGUAGE plpgsql
@@ -212,36 +214,57 @@ AS $$
 DECLARE
     new_user_id uuid;
 BEGIN
-    -- Security check: ensure the current user is an admin.
-    IF get_my_role() != 'admin' THEN
+    IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
-    -- Create the user in the auth schema. This bypasses email confirmation.
-    SELECT auth.admin_create_user(
+    -- Create user in auth schema
+    new_user_id := auth.admin_create_user(
         email := p_email,
         password := p_password
-    ) INTO new_user_id;
+    );
 
-    -- Set the role for the new user in the profiles table.
-    -- The handle_new_user trigger will have already inserted a row with 'staff' role.
-    -- We just need to update it if a different role is specified.
+    -- The handle_new_user trigger inserts a 'pending' profile. Update it to be 'approved'.
     UPDATE public.profiles
-    SET role = p_role
+    SET role = p_role,
+        status = 'approved'
     WHERE id = new_user_id;
 
-    -- Return the details of the newly created user.
     RETURN QUERY
-    SELECT u.id, u.email::text, p.role, u.created_at
+    SELECT u.id, u.email::text, p.role, p.status, u.created_at
     FROM auth.users u
     JOIN public.profiles p ON u.id = p.id
     WHERE u.id = new_user_id;
 END;
 $$;
-
--- Grant permission for authenticated users to call this function.
--- The internal security check will handle authorization.
 GRANT EXECUTE ON FUNCTION create_new_user(text, text, text) TO authenticated;
+
+-- Function for admins to approve or reject users.
+CREATE OR REPLACE FUNCTION update_user_status(target_user_id uuid, new_status text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    IF auth.uid() = target_user_id THEN
+        RAISE EXCEPTION 'Admins cannot change their own approval status';
+    END IF;
+
+    IF new_status NOT IN ('pending', 'approved', 'rejected') THEN
+        RAISE EXCEPTION 'Invalid status value';
+    END IF;
+    
+    UPDATE public.profiles
+    SET status = new_status
+    WHERE id = target_user_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION update_user_status(uuid, text) TO authenticated;
 
 
 -- STEP 7: Create all other application tables if they don't already exist.
@@ -256,9 +279,6 @@ CREATE TABLE IF NOT EXISTS public.customers (
     "previousBalance" real NOT NULL DEFAULT 0,
     "balanceAsOfDate" date
 );
-
--- (FIX) Add balance columns to customers table if they don't exist.
--- This handles schema migrations for users with older database versions and fixes "column does not exist" errors.
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "previousBalance" real NOT NULL DEFAULT 0;
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "balanceAsOfDate" date;
 
@@ -278,7 +298,6 @@ CREATE TABLE IF NOT EXISTS public.deliveries (
     CONSTRAINT deliveries_customer_id_date_key UNIQUE ("customerId", date)
 );
 
--- NEW: Table for delivery submissions awaiting admin approval
 CREATE TABLE IF NOT EXISTS public.pending_deliveries (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
@@ -287,7 +306,6 @@ CREATE TABLE IF NOT EXISTS public.pending_deliveries (
     "userId" uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
     CONSTRAINT pending_deliveries_customer_id_date_key UNIQUE ("customerId", date)
 );
-
 
 CREATE TABLE IF NOT EXISTS public.payments (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -304,66 +322,69 @@ CREATE TABLE IF NOT EXISTS public.website_content (
 
 
 -- STEP 8: Apply RLS policies to all data tables.
--- Disabling and re-enabling RLS ensures policies are applied correctly.
+-- These policies safely use 'check_user_role' because they are not for the 'profiles' table.
 
 -- Customers Table Policies
 ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can manage all customers" ON public.customers;
 CREATE POLICY "Admins can manage all customers" ON public.customers FOR ALL
-  USING (get_my_role() = 'admin')
-  WITH CHECK (get_my_role() = 'admin');
+  USING ( check_user_role('admin') )
+  WITH CHECK ( check_user_role('admin') );
 
 DROP POLICY IF EXISTS "Staff can view all customers" ON public.customers;
 CREATE POLICY "Staff can view all customers" ON public.customers FOR SELECT
-  USING (get_my_role() IN ('admin', 'staff'));
+  USING ( check_user_role('admin') OR check_user_role('staff') );
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
 -- Orders Table Policies
 ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Staff and Admins can manage orders" ON public.orders;
 CREATE POLICY "Staff and Admins can manage orders" ON public.orders FOR ALL
-  USING (get_my_role() IN ('admin', 'staff'))
-  WITH CHECK (get_my_role() IN ('admin', 'staff'));
+  USING ( check_user_role('admin') OR check_user_role('staff') )
+  WITH CHECK ( check_user_role('admin') OR check_user_role('staff') );
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
--- Deliveries Table Policies (MODIFIED: Only Admins can manage final deliveries)
+-- Deliveries Table Policies
 ALTER TABLE public.deliveries DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can manage deliveries" ON public.deliveries;
 CREATE POLICY "Admins can manage deliveries" ON public.deliveries FOR ALL
-  USING (get_my_role() = 'admin')
-  WITH CHECK (get_my_role() = 'admin');
+  USING ( check_user_role('admin') )
+  WITH CHECK ( check_user_role('admin') );
   
 DROP POLICY IF EXISTS "Authenticated users can view deliveries" ON public.deliveries;
 CREATE POLICY "Authenticated users can view deliveries" ON public.deliveries FOR SELECT
-  USING (get_my_role() IN ('admin', 'staff'));
+  USING ( check_user_role('admin') OR check_user_role('staff') );
 ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 
--- Pending Deliveries Table Policies (NEW)
+-- Pending Deliveries Table Policies
 ALTER TABLE public.pending_deliveries DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Staff and Admins can manage pending deliveries" ON public.pending_deliveries;
 CREATE POLICY "Staff and Admins can manage pending deliveries" ON public.pending_deliveries FOR ALL
-  USING (get_my_role() IN ('admin', 'staff'))
-  WITH CHECK (get_my_role() IN ('admin', 'staff'));
+  USING ( check_user_role('admin') OR check_user_role('staff') )
+  WITH CHECK ( check_user_role('admin') OR check_user_role('staff') );
 ALTER TABLE public.pending_deliveries ENABLE ROW LEVEL SECURITY;
 
 -- Payments Table Policies
 ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can manage all payments" ON public.payments;
 CREATE POLICY "Admins can manage all payments" ON public.payments FOR ALL
-  USING (get_my_role() = 'admin')
-  WITH CHECK (get_my_role() = 'admin');
+  USING ( check_user_role('admin') )
+  WITH CHECK ( check_user_role('admin') );
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
 -- Website Content Table Policies
 ALTER TABLE public.website_content DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can manage website content" ON public.website_content;
 CREATE POLICY "Admins can manage website content" ON public.website_content FOR ALL
-  USING (get_my_role() = 'admin')
-  WITH CHECK (get_my_role() = 'admin');
+  USING ( check_user_role('admin') )
+  WITH CHECK ( check_user_role('admin') );
 
 DROP POLICY IF EXISTS "Public can read website content" ON public.website_content;
 CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
 ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
+
+-- Cleanup old function to avoid confusion
+DROP FUNCTION IF EXISTS public.get_my_role();
 
 -- Script finished. All tables and policies are now correctly configured.
 `;
@@ -380,9 +401,11 @@ DROP TABLE IF EXISTS public.customers CASCADE;
 DROP TABLE IF EXISTS public.website_content CASCADE;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 DROP FUNCTION IF EXISTS public.get_my_role();
+DROP FUNCTION IF EXISTS public.check_user_role(text);
 DROP FUNCTION IF EXISTS public.get_all_users();
-DROP FUNCTION IF EXISTS public.delete_user_by_id(target_user_id uuid);
-DROP FUNCTION IF EXISTS public.create_new_user(p_email text, p_password text, p_role text);
+DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
+DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
+DROP FUNCTION IF EXISTS public.update_user_status(uuid, text);
 
 
 -- After running this, you MUST run the 'Full Setup Script' to recreate the tables.

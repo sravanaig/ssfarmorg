@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -27,11 +28,11 @@ export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
   heroSlides: [
-    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1563609329766-50c12e849a60?q=80&w=2070&auto=format&fit=crop" },
-    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1620451121653-f7553f2c733f?q=80&w=2070&auto=format&fit=crop" },
-    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1559598467-f8b76c8155d0?q=80&w=1974&auto=format&fit=crop" },
-    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1600891964923-e9c5222e4343?q=80&w=2070&auto=format&fit=crop" },
-    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" }
+    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1620189507195-68309c04c4d5?q=80&w=2070&auto=format&fit=crop" },
+    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1495107333503-a287c29515a3?q=80&w=2070&auto=format&fit=crop" },
+    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1628268812585-1122394c6538?q=80&w=1974&auto=format&fit=crop" },
+    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" },
+    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1567523913054-486018a1a312?q=80&w=2070&auto=format&fit=crop" }
   ],
   ourStory: {
     title: "Our Journey to Pure Milk",
@@ -263,7 +264,7 @@ const App: React.FC = () => {
 
         const { data: profileData, error: profileError } = await supabase
             .from('profiles')
-            .select('role')
+            .select('role, status')
             .eq('id', user.id)
             .single();
         
@@ -405,7 +406,7 @@ const App: React.FC = () => {
     };
   }, [fetchData]);
 
-  const handleSignUp = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+  const handleSignUp = async (email: string, pass: string): Promise<{ success: boolean; error?: string; message?: string }> => {
     const { error } = await supabase.auth.signUp({
         email: email,
         password: pass,
@@ -414,23 +415,54 @@ const App: React.FC = () => {
         console.error('Sign up error:', error.message);
         return { success: false, error: error.message };
     }
-    return { success: true };
+    return { success: true, message: 'Sign up successful! Please check your email to confirm your account. After confirmation, an administrator must approve your account before you can log in.' };
   };
 
   const handleLogin = async (email: string, pass:string): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: email,
         password: pass,
     });
-    if (error) {
-        console.error('Login error:', error.message);
-        let errorMessage = error.message;
+
+    if (signInError) {
+        console.error('Login error:', signInError.message);
+        let errorMessage = signInError.message;
         if (errorMessage.toLowerCase().includes('invalid login credentials')) {
             errorMessage = "Invalid email or password. If you've just signed up, please check your email to confirm your account before logging in.";
         }
         return { success: false, error: errorMessage };
     }
-    return { success: true };
+
+    if (signInData.user) {
+        // After successful authentication, check the profile status
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('status')
+            .eq('id', signInData.user.id)
+            .single();
+
+        // If profile doesn't exist, this implies a problem with the new user trigger. Log them out.
+        if (profileError || !profile) {
+            await supabase.auth.signOut();
+            return { success: false, error: "Could not retrieve your user profile. Please contact an administrator." };
+        }
+
+        if (profile.status === 'pending') {
+            await supabase.auth.signOut();
+            return { success: false, error: "Your account is pending approval from an administrator." };
+        }
+
+        if (profile.status === 'rejected') {
+            await supabase.auth.signOut();
+            return { success: false, error: "Your account has been rejected. Please contact an administrator for assistance." };
+        }
+
+        // If status is 'approved', login proceeds normally. onAuthStateChange will handle the rest.
+        return { success: true };
+    }
+
+    // Fallback for unexpected cases
+    return { success: false, error: 'An unexpected error occurred during login.' };
   };
 
   const handleLogout = async () => {
@@ -581,7 +613,7 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
       if (currentPage === 'login') {
-          return <LoginPage onLogin={handleLogin} onSignUp={handleSignUp} onBackToHome={() => setCurrentPage('home')} />;
+          return <LoginPage onLogin={handleLogin} onBackToHome={() => setCurrentPage('home')} />;
       }
       
       let pageContent;

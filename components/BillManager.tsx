@@ -293,7 +293,7 @@ Thank you for your business!
     // Header
     doc.setFontSize(20);
     doc.text('ssfarmorganic - Milk Bill', margin, 22);
-
+ 
     // Customer Info
     doc.setFontSize(12);
     doc.text(`Customer: ${customer.name}`, margin, 40);
@@ -441,9 +441,9 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
+            // Fix: The result of a FileReader can be a string, ArrayBuffer, or null.
+            // A type guard is necessary to ensure `text` is a string before calling string methods on it.
             const text = e.target?.result;
-            // Fix: Added a type guard to ensure the file content is a string before processing.
-            // The FileReader's result can be an ArrayBuffer, which would cause a type error on '.split()'.
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
