@@ -1,13 +1,17 @@
 
 
-import React, { useMemo, useState } from 'react';
-import type { Customer, Delivery, Payment } from '../types';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import type { Customer, Delivery, Payment, Order } from '../types';
 import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon } from './Icons';
+
+// This is a global from the CDN script in index.html
+declare const Chart: any;
 
 interface DashboardProps {
     customers: Customer[];
     deliveries: Delivery[];
     payments: Payment[];
+    orders: Order[];
 }
 
 const StatCard: React.FC<{
@@ -32,10 +36,15 @@ const StatCard: React.FC<{
 };
 
 
-const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }) => {
+const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, orders }) => {
     
     const [summaryDate, setSummaryDate] = useState(new Date().toISOString().split('T')[0]);
     const [summaryMonth, setSummaryMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
+
+    const barChartRef = useRef<HTMLCanvasElement>(null);
+    const barChartInstance = useRef<any>(null);
+    const pieChartRef = useRef<HTMLCanvasElement>(null);
+    const pieChartInstance = useRef<any>(null);
     
     const stats = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -117,6 +126,117 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
         };
     }, [customers, deliveries, summaryMonth]);
 
+    // Bar Chart: Daily Delivered vs. Ordered
+    useEffect(() => {
+        if (!barChartRef.current || typeof Chart === 'undefined') return;
+
+        const labels: string[] = [];
+        const deliveredData: number[] = [];
+        const orderedData: number[] = [];
+
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateString = d.toISOString().split('T')[0];
+            
+            labels.push(d.toLocaleDateString('en-US', { weekday: 'short' }));
+
+            const totalDelivered = deliveries.filter(del => del.date === dateString).reduce((sum, del) => sum + del.quantity, 0);
+            deliveredData.push(totalDelivered);
+
+            const totalOrdered = orders.filter(ord => ord.date === dateString).reduce((sum, ord) => sum + ord.quantity, 0);
+            orderedData.push(totalOrdered);
+        }
+
+        const ctx = barChartRef.current.getContext('2d');
+        if (!ctx) return;
+        
+        if (barChartInstance.current) {
+            barChartInstance.current.destroy();
+        }
+
+        barChartInstance.current = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Delivered (L)', data: deliveredData, backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', borderWidth: 1 },
+                    { label: 'Ordered (L)', data: orderedData, backgroundColor: 'rgba(255, 159, 64, 0.6)', borderColor: 'rgba(255, 159, 64, 1)', borderWidth: 1 },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, title: { display: true, text: 'Quantity (Liters)' } } },
+                plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+            },
+        });
+
+        return () => {
+            if (barChartInstance.current) {
+                barChartInstance.current.destroy();
+            }
+        };
+    }, [deliveries, orders]);
+
+    // Pie Chart: Customer Distribution
+    useEffect(() => {
+        if (!pieChartRef.current || typeof Chart === 'undefined') return;
+
+        const customerMap = new Map(customers.map(c => [c.id, c.name]));
+        const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
+        
+        const quantityByCustomer = new Map<string, number>();
+        deliveriesForMonth.forEach(delivery => {
+            const name = customerMap.get(delivery.customerId) || 'Unknown';
+            quantityByCustomer.set(name, (quantityByCustomer.get(name) || 0) + delivery.quantity);
+        });
+
+        const sortedCustomers = Array.from(quantityByCustomer.entries()).sort((a, b) => b[1] - a[1]);
+        const topCustomers = sortedCustomers.slice(0, 7);
+        const otherCustomers = sortedCustomers.slice(7);
+
+        const labels = topCustomers.map(c => c[0]);
+        const data = topCustomers.map(c => c[1]);
+        
+        if (otherCustomers.length > 0) {
+            labels.push('Others');
+            data.push(otherCustomers.reduce((sum, c) => sum + c[1], 0));
+        }
+
+        const ctx = pieChartRef.current.getContext('2d');
+        if (!ctx) return;
+        
+        if (pieChartInstance.current) {
+            pieChartInstance.current.destroy();
+        }
+
+        pieChartInstance.current = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Quantity (L)',
+                    data,
+                    backgroundColor: ['#4A90E2', '#50E3C2', '#F5A623', '#F8E71C', '#BD10E0', '#9013FE', '#417505', '#7ED321'],
+                    hoverOffset: 4,
+                }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right' },
+                    tooltip: { callbacks: { label: (c: any) => `${c.label}: ${c.raw.toFixed(2)} L` } },
+                },
+            },
+        });
+        
+        return () => {
+            if (pieChartInstance.current) {
+                pieChartInstance.current.destroy();
+            }
+        };
+    }, [customers, deliveries, summaryMonth]);
+
 
     return (
         <div>
@@ -142,6 +262,32 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments }
                     icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
                     color="bg-red-500"
                 />
+            </div>
+            
+            <div className="mt-8 pt-6 border-t border-gray-200">
+                <h3 className="text-2xl font-bold text-gray-800 mb-4">Delivery Analytics</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h4 className="text-lg font-semibold text-gray-700 mb-4">Past 7 Days: Delivered vs. Ordered</h4>
+                        <div className="relative h-80">
+                            <canvas ref={barChartRef}></canvas>
+                        </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h4 className="text-lg font-semibold text-gray-700 mb-4">
+                            Customer Distribution for {new Date(summaryMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}
+                        </h4>
+                        <div className="relative h-80">
+                             {deliveries.filter(d => d.date.startsWith(summaryMonth)).length > 0 ? (
+                                <canvas ref={pieChartRef}></canvas>
+                             ) : (
+                                <div className="flex items-center justify-center h-full text-gray-500">
+                                    No delivery data for this month.
+                                </div>
+                             )}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div className="mt-8 pt-6 border-t border-gray-200">

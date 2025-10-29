@@ -520,7 +520,7 @@ const App: React.FC = () => {
     const renderAdminView = () => {
         switch (view) {
           case 'dashboard':
-            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} />;
+            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />;
           case 'customers':
             return <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />;
           case 'logins':
@@ -548,7 +548,7 @@ const App: React.FC = () => {
           case 'database':
             return <DatabaseHelper projectRef={projectRef} errorMessage={fetchError?.replace('SCHEMA_MISMATCH: ', '') || ''} />;
           default:
-            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} />;
+            return <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />;
         }
     };
 
