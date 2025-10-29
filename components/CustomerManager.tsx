@@ -441,63 +441,98 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         </Modal>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-                {customers.length > 0 ? (
-                    filteredCustomers.length > 0 ? (
-                        <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3">Name</th>
-                                    <th scope="col" className="px-6 py-3">Address</th>
-                                    <th scope="col" className="px-6 py-3">Phone</th>
-                                    <th scope="col" className="px-6 py-3">Milk Price</th>
-                                    <th scope="col" className="px-6 py-3">Default Qty</th>
-                                    <th scope="col" className="px-6 py-3">Status</th>
-                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredCustomers.map(customer => (
-                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
-                                        <td className="px-6 py-4">{customer.address}</td>
-                                        <td className="px-6 py-4">{customer.phone}</td>
-                                        <td className="px-6 py-4">₹{customer.milkPrice.toFixed(2)}</td>
-                                        <td className="px-6 py-4">{customer.defaultQuantity} L</td>
-                                        <td className="px-6 py-4">
+             {customers.length > 0 ? (
+                filteredCustomers.length > 0 ? (
+                    <div>
+                        {/* Desktop Table View */}
+                        <div className="overflow-x-auto hidden lg:block">
+                            <table className="w-full text-sm text-left text-gray-500">
+                                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" className="px-6 py-3">Name</th>
+                                        <th scope="col" className="px-6 py-3">Address</th>
+                                        <th scope="col" className="px-6 py-3">Phone</th>
+                                        <th scope="col" className="px-6 py-3">Milk Price</th>
+                                        <th scope="col" className="px-6 py-3">Default Qty</th>
+                                        <th scope="col" className="px-6 py-3">Status</th>
+                                        <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredCustomers.map(customer => (
+                                        <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                            <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
+                                            <td className="px-6 py-4">{customer.address}</td>
+                                            <td className="px-6 py-4">{customer.phone}</td>
+                                            <td className="px-6 py-4">₹{customer.milkPrice.toFixed(2)}</td>
+                                            <td className="px-6 py-4">{customer.defaultQuantity} L</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                                                    customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                                }`}>
+                                                    {customer.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4"><EditIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800"><TrashIcon className="w-5 h-5"/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile & Tablet Card View */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 lg:hidden">
+                            {filteredCustomers.map(customer => (
+                                <div key={customer.id} className="bg-white border rounded-lg shadow-sm p-4 flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h3 className="font-bold text-lg text-gray-800">{customer.name}</h3>
                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                                                 customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                                             }`}>
                                                 {customer.status}
                                             </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4"><EditIcon className="w-5 h-5"/></button>
-                                            <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800"><TrashIcon className="w-5 h-5"/></button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <div className="text-center py-12 px-6">
-                            <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
-                            <p className="mt-1 text-sm text-gray-500">Try a different name, address, or phone number.</p>
-                        </div>
-                    )
-                ) : (
-                    <div className="text-center py-12 px-6">
-                        <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-                        <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer or importing from a CSV file.</p>
-                        <div className="mt-4">
-                            <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
-                                <PlusIcon className="h-5 w-5 mr-2"/>
-                                Add Customer
-                            </button>
+                                        </div>
+                                        <div className="text-sm text-gray-600 space-y-1">
+                                            <p><strong className="font-medium">Address:</strong> {customer.address}</p>
+                                            <p><strong className="font-medium">Phone:</strong> {customer.phone}</p>
+                                            <p><strong className="font-medium">Price:</strong> ₹{customer.milkPrice.toFixed(2)} / liter</p>
+                                            <p><strong className="font-medium">Default Qty:</strong> {customer.defaultQuantity} L</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+                                        <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                            <EditIcon className="w-4 h-4 mr-1"/> Edit
+                                        </button>
+                                        <button onClick={() => handleDeleteCustomer(customer.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">
+                                            <TrashIcon className="w-4 h-4 mr-1"/> Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                )}
-            </div>
+                ) : (
+                    <div className="text-center py-12 px-6">
+                        <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                        <p className="mt-1 text-sm text-gray-500">Try a different name, address, or phone number.</p>
+                    </div>
+                )
+            ) : (
+                <div className="text-center py-12 px-6">
+                    <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
+                    <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer or importing from a CSV file.</p>
+                    <div className="mt-4">
+                        <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                            <PlusIcon className="h-5 w-5 mr-2"/>
+                            Add Customer
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     </div>
   );

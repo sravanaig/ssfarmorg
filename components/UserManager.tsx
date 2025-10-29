@@ -185,23 +185,97 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
             </Modal>
 
             <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                    {users.length > 0 ? (
-                        <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3">Email</th>
-                                    <th scope="col" className="px-6 py-3">Role</th>
-                                    <th scope="col" className="px-6 py-3">Status</th>
-                                    <th scope="col" className="px-6 py-3">Joined On</th>
-                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {users.map(user => (
-                                    <tr key={user.id} className="bg-white border-b hover:bg-gray-50">
-                                        <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
-                                        <td className="px-6 py-4">
+                {users.length > 0 ? (
+                    <div>
+                        {/* Desktop Table View */}
+                        <div className="overflow-x-auto hidden lg:block">
+                            <table className="w-full text-sm text-left text-gray-500">
+                                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" className="px-6 py-3">Email</th>
+                                        <th scope="col" className="px-6 py-3">Role</th>
+                                        <th scope="col" className="px-6 py-3">Status</th>
+                                        <th scope="col" className="px-6 py-3">Joined On</th>
+                                        <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {users.map(user => (
+                                        <tr key={user.id} className="bg-white border-b hover:bg-gray-50">
+                                            <td className="px-6 py-4 font-medium text-gray-900">{user.email}</td>
+                                            <td className="px-6 py-4">
+                                                {user.status === 'approved' ? (
+                                                    <select
+                                                        value={user.role}
+                                                        onChange={(e) => handleRoleChange(user.id, e.target.value as 'admin' | 'staff')}
+                                                        disabled={isUpdating === user.id}
+                                                        className="border border-gray-300 rounded-md shadow-sm py-1 px-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                    >
+                                                        <option value="admin">Admin</option>
+                                                        <option value="staff">Staff</option>
+                                                    </select>
+                                                ) : (
+                                                    <span className="capitalize text-gray-600">{user.role}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                                                    user.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                                    user.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                                    'bg-red-100 text-red-800'
+                                                }`}>
+                                                    {user.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {new Date(user.created_at).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                            {isUpdating === user.id ? (
+                                                <div className="flex justify-end">
+                                                    <SpinnerIcon className="h-5 w-5 animate-spin text-gray-500" />
+                                                </div>
+                                            ) : user.status === 'pending' ? (
+                                                <div className="flex gap-2 justify-end">
+                                                    <button onClick={() => handleUpdateStatus(user.id, user.email, 'approved')} title="Approve User" className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
+                                                    <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} title="Reject User" className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
+                                                </div>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => handleDeleteUser(user.id, user.email)}
+                                                    className="text-red-600 hover:text-red-800"
+                                                    title="Delete User"
+                                                >
+                                                    <TrashIcon className="w-5 h-5"/>
+                                                </button>
+                                            )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                         {/* Mobile Card View */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 lg:hidden">
+                            {users.map(user => (
+                                <div key={user.id} className="bg-white border rounded-lg shadow-sm p-4 flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h3 className="font-bold text-gray-800 break-all">{user.email}</h3>
+                                        </div>
+                                         <p className="text-sm text-gray-500 mb-2">Joined: {new Date(user.created_at).toLocaleDateString()}</p>
+                                        <div className="flex items-center gap-2 mb-2">
+                                             <span className="text-sm font-medium">Status:</span>
+                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
+                                                user.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                                user.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-red-100 text-red-800'
+                                            }`}>
+                                                {user.status}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <label className="text-sm font-medium">Role:</label>
                                             {user.status === 'approved' ? (
                                                 <select
                                                     value={user.role}
@@ -213,52 +287,39 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                                                     <option value="staff">Staff</option>
                                                 </select>
                                             ) : (
-                                                <span className="capitalize text-gray-600">{user.role}</span>
+                                                <span className="capitalize text-gray-600 text-sm">{user.role}</span>
                                             )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
-                                                user.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                                user.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-red-100 text-red-800'
-                                            }`}>
-                                                {user.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {new Date(user.created_at).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                        {isUpdating === user.id ? (
-                                            <div className="flex justify-end">
-                                                <SpinnerIcon className="h-5 w-5 animate-spin text-gray-500" />
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-2 mt-2 pt-2 border-t">
+                                         {isUpdating === user.id ? (
+                                            <div className="flex justify-end w-full">
+                                                <SpinnerIcon className="h-6 w-6 animate-spin text-gray-500" />
                                             </div>
                                         ) : user.status === 'pending' ? (
-                                            <div className="flex gap-2 justify-end">
-                                                <button onClick={() => handleUpdateStatus(user.id, user.email, 'approved')} title="Approve User" className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
-                                                <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} title="Reject User" className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
-                                            </div>
+                                            <>
+                                                <button onClick={() => handleUpdateStatus(user.id, user.email, 'approved')} className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
+                                                <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
+                                            </>
                                         ) : (
                                             <button 
                                                 onClick={() => handleDeleteUser(user.id, user.email)}
-                                                className="text-red-600 hover:text-red-800"
-                                                title="Delete User"
+                                                className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
                                             >
-                                                <TrashIcon className="w-5 h-5"/>
+                                                <TrashIcon className="w-4 h-4 mr-1"/> Delete
                                             </button>
                                         )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <div className="text-center py-12 px-6">
-                            <h3 className="text-lg font-medium text-gray-700">No Users Found</h3>
-                            <p className="mt-1 text-sm text-gray-500">Only the initial admin user exists.</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    <div className="text-center py-12 px-6">
+                        <h3 className="text-lg font-medium text-gray-700">No Other Users Found</h3>
+                        <p className="mt-1 text-sm text-gray-500">Only the initial admin user exists.</p>
+                    </div>
+                )}
             </div>
         </div>
     );

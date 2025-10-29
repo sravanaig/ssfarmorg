@@ -186,49 +186,70 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
         </Modal>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-                {customers.length > 0 ? (
-                    filteredCustomerBalances.length > 0 ? (
-                        <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3">Customer</th>
-                                    <th scope="col" className="px-6 py-3">Outstanding Balance</th>
-                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredCustomerBalances.map(customer => (
-                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
-                                            {customer.name}
-                                        </th>
-                                        <td className={`px-6 py-4 font-semibold ${customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                            ₹{customer.balance.toFixed(2)}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button onClick={() => openPaymentModal(customer)} className="flex items-center ml-auto px-3 py-1.5 text-sm bg-green-600 text-white rounded-md shadow-sm hover:bg-green-700 transition-colors">
-                                                <PlusIcon className="h-4 w-4 mr-1"/>
-                                                Record Payment
-                                            </button>
-                                        </td>
+             {customers.length > 0 ? (
+                filteredCustomerBalances.length > 0 ? (
+                    <div>
+                        {/* Desktop Table View */}
+                        <div className="overflow-x-auto hidden sm:block">
+                            <table className="w-full text-sm text-left text-gray-500">
+                                <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" className="px-6 py-3">Customer</th>
+                                        <th scope="col" className="px-6 py-3">Outstanding Balance</th>
+                                        <th scope="col" className="px-6 py-3 text-right">Actions</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <div className="text-center py-12 px-6">
-                            <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
-                            <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+                                </thead>
+                                <tbody>
+                                    {filteredCustomerBalances.map(customer => (
+                                        <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                            <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                                {customer.name}
+                                            </th>
+                                            <td className={`px-6 py-4 font-semibold ${customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                ₹{customer.balance.toFixed(2)}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button onClick={() => openPaymentModal(customer)} className="flex items-center ml-auto px-3 py-1.5 text-sm bg-green-600 text-white rounded-md shadow-sm hover:bg-green-700 transition-colors">
+                                                    <PlusIcon className="h-4 w-4 mr-1"/>
+                                                    Record Payment
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
-                    )
-                 ) : (
-                    <div className="text-center py-12 px-6">
-                        <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-                        <p className="mt-1 text-sm text-gray-500">Add customers to manage their payments.</p>
+
+                         {/* Mobile Card View */}
+                        <div className="space-y-4 p-4 sm:hidden">
+                            {filteredCustomerBalances.map(customer => (
+                                <div key={customer.id} className="bg-white border rounded-lg shadow-sm p-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="font-bold text-lg text-gray-800">{customer.name}</h3>
+                                        <div className={`text-lg font-semibold ${customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            ₹{customer.balance.toFixed(2)}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => openPaymentModal(customer)} className="w-full flex items-center justify-center mt-2 px-3 py-2 text-sm bg-green-600 text-white rounded-md shadow-sm hover:bg-green-700 transition-colors">
+                                        <PlusIcon className="h-4 w-4 mr-1"/>
+                                        Record Payment
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                )}
-            </div>
+                ) : (
+                    <div className="text-center py-12 px-6">
+                        <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                        <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+                    </div>
+                )
+             ) : (
+                <div className="text-center py-12 px-6">
+                    <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
+                    <p className="mt-1 text-sm text-gray-500">Add customers to manage their payments.</p>
+                </div>
+            )}
         </div>
     </div>
   );

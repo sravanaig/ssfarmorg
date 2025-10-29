@@ -748,36 +748,60 @@ Thank you for your business!
                 </div>
             </div>
             {filteredCustomers.length > 0 ? (
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left text-gray-500">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                            <tr>
-                                <th className="px-4 py-3">Customer Name</th>
-                                <th className="px-4 py-3 text-right">Prev. Balance</th>
-                                <th className="px-4 py-3 text-right">Current Bill</th>
-                                <th className="px-4 py-3 text-right">Paid</th>
-                                <th className="px-4 py-3 text-right">Outstanding Balance</th>
-                                <th className="px-4 py-3 text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {allBillDetails.map(details => (
-                                <tr key={details.customer.id} className="bg-white border-b hover:bg-gray-50">
-                                    <td className="px-4 py-2 font-medium text-gray-900">{details.customer.name}</td>
-                                    <td className="px-4 py-2 text-right">₹{details.previousBalance.toFixed(2)}</td>
-                                    <td className="px-4 py-2 text-right">₹{details.totalAmount.toFixed(2)}</td>
-                                    <td className="px-4 py-2 text-right text-green-600">₹{details.totalPaid.toFixed(2)}</td>
-                                    <td className={`px-4 py-2 text-right font-semibold ${details.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>₹{details.balance.toFixed(2)}</td>
-                                    <td className="px-4 py-2 text-center">
-                                        <div className="flex items-center justify-center gap-2">
-                                            <button onClick={() => setSelectedCustomerId(details.customer.id)} className="text-blue-600 hover:underline text-xs font-semibold">View/Edit</button>
-                                            <button onClick={() => handleSendWhatsApp(details)} aria-label="Send via WhatsApp" className="text-green-500 hover:text-green-700 p-1"><WhatsAppIcon className="h-5 w-5"/></button>
-                                        </div>
-                                    </td>
+                <div>
+                    {/* Desktop Table View */}
+                    <div className="overflow-x-auto hidden md:block">
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th className="px-4 py-3">Customer Name</th>
+                                    <th className="px-4 py-3 text-right">Prev. Balance</th>
+                                    <th className="px-4 py-3 text-right">Current Bill</th>
+                                    <th className="px-4 py-3 text-right">Paid</th>
+                                    <th className="px-4 py-3 text-right">Outstanding Balance</th>
+                                    <th className="px-4 py-3 text-center">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {allBillDetails.map(details => (
+                                    <tr key={details.customer.id} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-4 py-2 font-medium text-gray-900">{details.customer.name}</td>
+                                        <td className="px-4 py-2 text-right">₹{details.previousBalance.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-right">₹{details.totalAmount.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-right text-green-600">₹{details.totalPaid.toFixed(2)}</td>
+                                        <td className={`px-4 py-2 text-right font-semibold ${details.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>₹{details.balance.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-center">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <button onClick={() => setSelectedCustomerId(details.customer.id)} className="text-blue-600 hover:underline text-xs font-semibold">View/Edit</button>
+                                                <button onClick={() => handleSendWhatsApp(details)} aria-label="Send via WhatsApp" className="text-green-500 hover:text-green-700 p-1"><WhatsAppIcon className="h-5 w-5"/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {/* Mobile Card View */}
+                    <div className="space-y-4 md:hidden">
+                        {allBillDetails.map(details => (
+                             <div key={details.customer.id} className="bg-white border rounded-lg shadow-sm p-4">
+                                <h4 className="font-bold text-lg text-gray-800 mb-2">{details.customer.name}</h4>
+                                <div className="text-sm space-y-1 border-t pt-2">
+                                    <p className="flex justify-between"><span>Prev. Balance:</span> <span>₹{details.previousBalance.toFixed(2)}</span></p>
+                                    <p className="flex justify-between"><span>Current Bill:</span> <span>₹{details.totalAmount.toFixed(2)}</span></p>
+                                    <p className="flex justify-between"><span>Paid:</span> <span className="text-green-600">₹{details.totalPaid.toFixed(2)}</span></p>
+                                    <p className={`flex justify-between font-bold text-base mt-2 pt-2 border-t ${details.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                        <span>Outstanding:</span> 
+                                        <span>₹{details.balance.toFixed(2)}</span>
+                                    </p>
+                                </div>
+                                <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+                                    <button onClick={() => handleSendWhatsApp(details)} aria-label="Send via WhatsApp" className="text-green-500 hover:text-green-700 p-1"><WhatsAppIcon className="h-6 w-6"/></button>
+                                    <button onClick={() => setSelectedCustomerId(details.customer.id)} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">View/Edit</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             ) : (
                 <div className="text-center py-12 px-6">
