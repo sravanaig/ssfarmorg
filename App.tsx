@@ -633,7 +633,7 @@ const App: React.FC = () => {
                       </div>
                     ) : (
                         <>
-                            {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} />}
+                            {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />}
                             {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} />}

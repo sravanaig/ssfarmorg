@@ -46,29 +46,6 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
 
   const activeCustomers = useMemo(() => customers.filter(c => c.status === 'active'), [customers]);
 
-  const filteredCustomers = useMemo(() => {
-    const lowercasedFilter = searchTerm.toLowerCase().trim();
-    if (!lowercasedFilter) {
-      return activeCustomers;
-    }
-    return activeCustomers.filter(customer =>
-      customer.name.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [activeCustomers, searchTerm]);
-
-  useEffect(() => {
-    // If the selected customer is filtered out, deselect them and clear pending changes
-    if (selectedCustomerId && !filteredCustomers.some(c => c.id === selectedCustomerId)) {
-      setSelectedCustomerId('');
-    }
-  }, [filteredCustomers, selectedCustomerId]);
-
-  useEffect(() => {
-    // Clear any pending edits when the customer or month changes
-    setEditedQuantities(new Map());
-  }, [selectedCustomerId, billingMonth]);
-
-
   const allBillDetails = useMemo((): BillDetails[] => {
     if (!billingMonth) return [];
 
@@ -76,7 +53,7 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate = new Date(Date.UTC(year, month, 0));
 
-    return filteredCustomers.map(customer => {
+    const detailsForAllCustomers = customers.map(customer => {
         // Previous Balance Calculation (NEW LOGIC)
         let previousBalance = 0;
         
@@ -141,7 +118,37 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
             previousBalance
         };
     });
-  }, [billingMonth, filteredCustomers, deliveries, payments]);
+    
+    const lowercasedFilter = searchTerm.toLowerCase().trim();
+
+    return detailsForAllCustomers.filter(details => {
+        const hasActivity = details.deliveriesForPeriod.length > 0 || details.totalPaid > 0;
+        // Show if active, or if inactive but with a non-zero balance or activity in the current period.
+        const isVisible = details.customer.status === 'active' || details.balance !== 0 || hasActivity;
+        
+        if (!isVisible) return false;
+
+        if (!lowercasedFilter) {
+            return true;
+        }
+
+        return details.customer.name.toLowerCase().includes(lowercasedFilter);
+    });
+
+  }, [billingMonth, customers, deliveries, payments, searchTerm]);
+
+  useEffect(() => {
+    // If the selected customer is filtered out, deselect them and clear pending changes
+    if (selectedCustomerId && !allBillDetails.some(d => d.customer.id === selectedCustomerId)) {
+      setSelectedCustomerId('');
+    }
+  }, [allBillDetails, selectedCustomerId]);
+
+  useEffect(() => {
+    // Clear any pending edits when the customer or month changes
+    setEditedQuantities(new Map());
+  }, [selectedCustomerId, billingMonth]);
+
 
   const selectedCustomerBillDetails = useMemo(() => {
     if (!selectedCustomerId) return null;
@@ -441,9 +448,9 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // Fix: The result of a FileReader can be a string, ArrayBuffer, or null.
-            // A type guard is necessary to ensure `text` is a string before calling string methods on it.
             const text = e.target?.result;
+            // FIX: The 'result' of a FileReader can be an ArrayBuffer or null, not just a string.
+            // A type guard is added to ensure `text` is a string before calling string methods on it, resolving the error.
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
@@ -747,7 +754,7 @@ Thank you for your business!
                     <button onClick={handleDownloadAllPdfs} className="flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download All Bills (PDF)</button>
                 </div>
             </div>
-            {filteredCustomers.length > 0 ? (
+            {allBillDetails.length > 0 ? (
                 <div>
                     {/* Desktop Table View */}
                     <div className="overflow-x-auto hidden md:block">
@@ -765,7 +772,14 @@ Thank you for your business!
                             <tbody>
                                 {allBillDetails.map(details => (
                                     <tr key={details.customer.id} className="bg-white border-b hover:bg-gray-50">
-                                        <td className="px-4 py-2 font-medium text-gray-900">{details.customer.name}</td>
+                                        <td className="px-4 py-2 font-medium text-gray-900">
+                                            {details.customer.name}
+                                            {details.customer.status === 'inactive' && (
+                                                <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                                    Inactive
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-2 text-right">₹{details.previousBalance.toFixed(2)}</td>
                                         <td className="px-4 py-2 text-right">₹{details.totalAmount.toFixed(2)}</td>
                                         <td className="px-4 py-2 text-right text-green-600">₹{details.totalPaid.toFixed(2)}</td>
@@ -785,7 +799,14 @@ Thank you for your business!
                     <div className="space-y-4 md:hidden">
                         {allBillDetails.map(details => (
                              <div key={details.customer.id} className="bg-white border rounded-lg shadow-sm p-4">
-                                <h4 className="font-bold text-lg text-gray-800 mb-2">{details.customer.name}</h4>
+                                <h4 className="font-bold text-lg text-gray-800 mb-2 flex items-center">
+                                    {details.customer.name}
+                                    {details.customer.status === 'inactive' && (
+                                        <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                            Inactive
+                                        </span>
+                                    )}
+                                </h4>
                                 <div className="text-sm space-y-1 border-t pt-2">
                                     <p className="flex justify-between"><span>Prev. Balance:</span> <span>₹{details.previousBalance.toFixed(2)}</span></p>
                                     <p className="flex justify-between"><span>Current Bill:</span> <span>₹{details.totalAmount.toFixed(2)}</span></p>

@@ -1,8 +1,6 @@
-
-
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import type { Customer, Delivery, Payment, Order } from '../types';
-import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon } from './Icons';
+import type { Customer, Delivery, Payment, Order, PendingDelivery } from '../types';
+import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon, CheckIcon } from './Icons';
 
 // This is a global from the CDN script in index.html
 declare const Chart: any;
@@ -12,6 +10,7 @@ interface DashboardProps {
     deliveries: Delivery[];
     payments: Payment[];
     orders: Order[];
+    pendingDeliveries: PendingDelivery[];
 }
 
 const StatCard: React.FC<{
@@ -36,7 +35,7 @@ const StatCard: React.FC<{
 };
 
 
-const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, orders }) => {
+const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, orders, pendingDeliveries }) => {
     
     const [summaryDate, setSummaryDate] = useState(new Date().toISOString().split('T')[0]);
     const [summaryMonth, setSummaryMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
@@ -64,6 +63,11 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
             return sum + (d.quantity * (customer?.milkPrice || 0));
         }, 0);
         
+        // Month-to-Date Payments
+        const mtdPayments = payments
+            .filter(p => p.date.startsWith(currentMonth))
+            .reduce((sum, p) => sum + p.amount, 0);
+        
         // Total Outstanding Balance
         const totalDue = deliveries.reduce((sum, d) => {
             const customer = customerMap.get(d.customerId);
@@ -73,20 +77,21 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
         const totalOutstanding = totalDue - totalPaid;
         
         // Customer stats
-        const totalCustomers = customers.length;
         const activeCustomers = customers.filter(c => c.status === 'active').length;
-        const inactiveCustomers = totalCustomers - activeCustomers;
+
+        // Pending Deliveries
+        const pendingDeliveriesCount = pendingDeliveries.length;
 
         return {
             totalQuantityToday,
             customersServedToday,
             mtdRevenue,
+            mtdPayments,
             totalOutstanding,
-            totalCustomers,
             activeCustomers,
-            inactiveCustomers,
+            pendingDeliveriesCount,
         };
-    }, [customers, deliveries, payments]);
+    }, [customers, deliveries, payments, pendingDeliveries]);
     
     const dailySummary = useMemo(() => {
         const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
@@ -225,7 +230,9 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 responsive: true, maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'right' },
-                    tooltip: { callbacks: { label: (c: any) => `${c.label}: ${c.raw.toFixed(2)} L` } },
+                    // FIX: The `raw` property on the chart.js tooltip item is of type `unknown`.
+                    // It is explicitly cast to a number before calling `.toFixed()` to prevent a runtime error.
+                    tooltip: { callbacks: { label: (c: any) => `${c.label}: ${(c.raw as number).toFixed(2)} L` } },
                 },
             },
         });
@@ -256,11 +263,30 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                     icon={<BillIcon className="h-6 w-6 text-white"/>}
                     color="bg-green-500"
                 />
+                 <StatCard
+                    title="Payments Received (Month)"
+                    value={`₹${stats.mtdPayments.toFixed(2)}`}
+                    icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
+                    color="bg-emerald-500"
+                />
                 <StatCard
                     title="Total Outstanding Balance"
                     value={`₹${stats.totalOutstanding.toFixed(2)}`}
                     icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
                     color="bg-red-500"
+                />
+                <StatCard
+                    title="Pending Deliveries"
+                    value={`${stats.pendingDeliveriesCount}`}
+                    subtitle="Awaiting admin approval"
+                    icon={<CheckIcon className="h-6 w-6 text-white"/>}
+                    color="bg-yellow-500"
+                />
+                <StatCard
+                    title="Active Customers"
+                    value={`${stats.activeCustomers}`}
+                    icon={<UsersIcon className="h-6 w-6 text-white"/>}
+                    color="bg-teal-500"
                 />
             </div>
             
@@ -287,30 +313,6 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                              )}
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <div className="mt-8 pt-6 border-t border-gray-200">
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">Customer Overview</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <StatCard
-                        title="Total Customers"
-                        value={`${stats.totalCustomers}`}
-                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                        color="bg-gray-500"
-                    />
-                    <StatCard
-                        title="Active Customers"
-                        value={`${stats.activeCustomers}`}
-                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                        color="bg-teal-500"
-                    />
-                    <StatCard
-                        title="Inactive Customers"
-                        value={`${stats.inactiveCustomers}`}
-                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                        color="bg-orange-500"
-                    />
                 </div>
             </div>
             
