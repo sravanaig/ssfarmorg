@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Customer } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon, KeyIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -200,6 +200,52 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     );
 };
 
+interface PasswordSetFormProps {
+    onSubmit: (password: string) => void;
+    onClose: () => void;
+    isSubmitting: boolean;
+}
+
+const PasswordSetForm: React.FC<PasswordSetFormProps> = ({ onSubmit, onClose, isSubmitting }) => {
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        if (password.length < 6) {
+            setError('Password must be at least 6 characters long.');
+            return;
+        }
+        if (password !== confirmPassword) {
+            setError('Passwords do not match.');
+            return;
+        }
+        onSubmit(password);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+                <label className="block text-sm font-medium text-gray-700">New Password</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" />
+            </div>
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Confirm New Password</label>
+                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" />
+            </div>
+            {error && <p className="text-xs text-red-600">{error}</p>}
+            <div className="flex justify-end pt-4 space-x-2">
+                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                    {isSubmitting ? 'Saving...' : 'Set Password'}
+                </button>
+            </div>
+        </form>
+    );
+};
+
 interface CustomerManagerProps {
   customers: Customer[];
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
@@ -209,7 +255,9 @@ interface CustomerManagerProps {
 
 const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
+  const [customerForPassword, setCustomerForPassword] = useState<Customer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -316,10 +364,41 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         }
     }
   };
+  
+  const handleSetPassword = async (password: string) => {
+    if (!customerForPassword) return;
+    setIsSubmitting(true);
+    try {
+        const { data: newUserId, error } = await supabase.rpc('admin_set_customer_password', {
+            p_customer_id: customerForPassword.id,
+            p_password: password
+        });
+
+        if (error) throw error;
+
+        // Update local customer state with the new userId if it was created
+        setCustomers(prev => prev.map(c => 
+            c.id === customerForPassword.id ? { ...c, userId: newUserId } : c
+        ));
+        
+        alert(`Password for ${customerForPassword.name} has been set successfully.`);
+        setIsPasswordModalOpen(false);
+        setCustomerForPassword(null);
+    } catch (error: any) {
+        alert(getFriendlyErrorMessage(error));
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
 
   const openEditModal = (customer: Customer) => {
     setCustomerToEdit(customer);
     setIsModalOpen(true);
+  };
+  
+  const openPasswordModal = (customer: Customer) => {
+    setCustomerForPassword(customer);
+    setIsPasswordModalOpen(true);
   };
 
   const openAddModal = () => {
@@ -409,7 +488,11 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const text = e.target?.result as string;
+            const text = e.target?.result;
+            if (typeof text !== 'string') {
+              alert('Error reading file content or file is empty.');
+              return;
+            }
             await processAndImportCustomers(text);
         } catch (error: any) {
             alert("An error occurred while importing the file: " + getFriendlyErrorMessage(error));
@@ -463,6 +546,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 isSubmitting={isSubmitting}
             />
         </Modal>
+        
+        <Modal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} title={`Set Password for ${customerForPassword?.name}`}>
+            <PasswordSetForm
+                onSubmit={handleSetPassword}
+                onClose={() => setIsPasswordModalOpen(false)}
+                isSubmitting={isSubmitting}
+            />
+        </Modal>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
              {customers.length > 0 ? (
@@ -494,9 +585,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                                     <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 items-center"><CheckIcon className="h-3 w-3 mr-1" /> Login Active</span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 mr-4 inline-block align-middle"><EditIcon className="w-5 h-5"/></button>
-                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle"><TrashIcon className="w-5 h-5"/></button>
+                                            <td className="px-6 py-4 text-right space-x-4">
+                                                <button onClick={() => openPasswordModal(customer)} className="text-gray-500 hover:text-blue-600 inline-block align-middle" title="Set/Change Password"><KeyIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 inline-block align-middle" title="Edit Customer"><EditIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle" title="Delete Customer"><TrashIcon className="w-5 h-5"/></button>
                                             </td>
                                         </tr>
                                     ))}
@@ -526,6 +618,9 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                         </div>
                                     </div>
                                     <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+                                        <button onClick={() => openPasswordModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">
+                                            <KeyIcon className="w-4 h-4 mr-1"/> Password
+                                        </button>
                                         <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">
                                             <EditIcon className="w-4 h-4 mr-1"/> Edit
                                         </button>

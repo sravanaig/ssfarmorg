@@ -17,6 +17,12 @@ export const getFriendlyErrorMessage = (error: any): string => {
   if (message.includes('jwt') || message.includes('token') || message.includes('invalid claim')) {
       return 'Authentication error. Your session may have expired. Please log out and log back in.';
   }
+  if (message.includes('invalid login credentials')) {
+    return 'Invalid mobile number or password. Please check your credentials and try again.';
+  }
+  if (message.includes('unsupported phone provider')) {
+    return 'Configuration Error: The SMS provider (e.g., Twilio) is not set up correctly in the Supabase project settings. Please contact the administrator.';
+  }
 
   // Return the original message for other errors
   return error.message || 'An unexpected error occurred.';

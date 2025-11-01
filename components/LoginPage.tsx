@@ -5,14 +5,13 @@ import { MilkIcon, ArrowLeftIcon, SpinnerIcon } from './Icons';
 
 interface LoginPageProps {
     onAdminLogin: (email: string, pass: string) => Promise<{ success: boolean, error?: string }>;
-    onSendOtp: (phone: string) => Promise<{ success: boolean; error?: string }>;
-    onVerifyOtp: (phone: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+    onCustomerLogin: (phone: string, pass: string) => Promise<{ success: boolean, error?: string }>;
     onBackToHome: () => void;
 }
 
 type LoginMode = 'admin' | 'customer';
 
-const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerifyOtp, onBackToHome }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, onBackToHome }) => {
     // Shared State
     const [mode, setMode] = useState<LoginMode>('admin');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -20,22 +19,21 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerify
     
     // Admin State
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const [adminPassword, setAdminPassword] = useState('');
 
     // Customer State
     const [phone, setPhone] = useState('');
-    const [otp, setOtp] = useState('');
-    const [otpSent, setOtpSent] = useState(false);
+    const [customerPassword, setCustomerPassword] = useState('');
+
 
     const handleModeChange = (newMode: LoginMode) => {
         setMode(newMode);
         // Reset all fields and errors on mode change
         setEmail('');
-        setPassword('');
+        setAdminPassword('');
         setPhone('');
-        setOtp('');
+        setCustomerPassword('');
         setErrors({});
-        setOtpSent(false);
         setIsLoading(false);
     };
 
@@ -53,14 +51,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerify
         }
         
         setIsLoading(true);
-        const result = await onAdminLogin(email, password);
+        const result = await onAdminLogin(email, adminPassword);
         if (!result.success) {
-            setErrors({ form: result.error || 'Invalid email or password.' });
+            setErrors({ form: result.error || 'An error occurred.' });
         }
         setIsLoading(false);
     };
 
-    const handleCustomerSendOtp = async (e: React.FormEvent) => {
+    const handleCustomerLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrors({});
         if (!/^\d{10}$/.test(phone)) {
@@ -69,31 +67,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerify
         }
         
         setIsLoading(true);
-        const result = await onSendOtp(phone);
-        if (result.success) {
-            setOtpSent(true);
-        } else {
-            setErrors({ form: result.error || 'Failed to send OTP.' });
-        }
-        setIsLoading(false);
-    };
-    
-    const handleCustomerVerifyOtp = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setErrors({});
-        if (!/^\d{6}$/.test(otp)) {
-            setErrors({ otp: 'Please enter the 6-digit OTP.' });
-            return;
-        }
-        
-        setIsLoading(true);
-        const result = await onVerifyOtp(phone, otp);
+        const result = await onCustomerLogin(phone, customerPassword);
         if (!result.success) {
-            setErrors({ form: result.error || 'Invalid OTP. Please try again.' });
+            setErrors({ form: result.error || 'Login failed. Please try again.' });
         }
         // On success, the App component will handle navigation
         setIsLoading(false);
     };
+    
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
@@ -121,7 +102,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerify
                     <div className="text-center mb-8">
                         <MilkIcon className="h-12 w-12 text-blue-600 mx-auto"/>
                         <h2 className="mt-4 text-3xl font-bold text-gray-800">{mode === 'admin' ? 'Admin Login' : 'Customer Portal'}</h2>
-                        <p className="text-gray-500">{mode === 'admin' ? 'Access your dashboard' : 'Login with your mobile number'}</p>
+                        <p className="text-gray-500">{mode === 'admin' ? 'Access your dashboard' : 'Login with your mobile and password'}</p>
                     </div>
 
                     {errors.form && (
@@ -139,43 +120,30 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onSendOtp, onVerify
                             </div>
                             <div>
                                 <label htmlFor="password"className="block text-sm font-medium text-gray-700">Password</label>
-                                <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                                <input id="password" type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
                             </div>
                             <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                                {isLoading ? 'Signing in...' : 'Sign in'}
                             </button>
                         </form>
                     ) : (
-                        !otpSent ? (
-                            <form onSubmit={handleCustomerSendOtp} className="space-y-6">
-                                <div>
-                                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700">10-Digit Mobile Number</label>
-                                    <div className="mt-1 flex">
-                                        <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
-                                        <input id="phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} required className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
-                                    </div>
-                                    {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                        <form onSubmit={handleCustomerLoginSubmit} className="space-y-6">
+                            <div>
+                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">10-Digit Mobile Number</label>
+                                <div className="mt-1 flex">
+                                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
+                                    <input id="phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} required className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
                                 </div>
-                                <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                                   {isLoading ? <SpinnerIcon className="animate-spin h-5 w-5" /> : 'Send OTP'}
-                                </button>
-                            </form>
-                        ) : (
-                            <form onSubmit={handleCustomerVerifyOtp} className="space-y-6">
-                                <div>
-                                    <p className="text-sm text-gray-600 text-center">An OTP has been sent to +91 {phone}.</p>
-                                    <button type="button" onClick={() => setOtpSent(false)} className="text-sm text-blue-600 hover:underline w-full text-center mt-1">Change Number</button>
-                                </div>
-                                <div>
-                                    <label htmlFor="otp" className="block text-sm font-medium text-gray-700">Enter OTP</label>
-                                    <input id="otp" type="tel" value={otp} onChange={e => setOtp(e.target.value)} required maxLength={6} className={`mt-1 block w-full border text-center tracking-[0.5em] ${errors.otp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2`} />
-                                    {errors.otp && <p className="mt-1 text-xs text-red-600">{errors.otp}</p>}
-                                </div>
-                                <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                                    {isLoading ? <SpinnerIcon className="animate-spin h-5 w-5" /> : 'Verify & Login'}
-                                </button>
-                            </form>
-                        )
+                                {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                            </div>
+                             <div>
+                                <label htmlFor="customer-password"className="block text-sm font-medium text-gray-700">Password</label>
+                                <input id="customer-password" type="password" value={customerPassword} onChange={e => setCustomerPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                            </div>
+                            <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                               {isLoading ? <SpinnerIcon className="animate-spin h-5 w-5" /> : 'Login'}
+                            </button>
+                        </form>
                     )}
                 </div>
             </div>

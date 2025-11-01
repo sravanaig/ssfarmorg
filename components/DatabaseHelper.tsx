@@ -45,12 +45,16 @@ const DatabaseHelper: React.FC<DatabaseHelperProps> = ({ projectRef, errorMessag
     const fullSetupSql = `-- This robust script sets up your database, enables role-based access, and fixes common errors.
 -- It is idempotent, meaning it is safe to run this script multiple times.
 
--- STEP 1: Grant necessary schema permissions to Supabase's roles.
+-- STEP 1: Enable required extensions
+-- The pgcrypto extension provides hashing functions needed for setting customer passwords securely.
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
+-- STEP 2: Grant necessary schema permissions to Supabase's roles.
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO service_role;
 GRANT ALL ON SCHEMA public TO postgres;
 
--- STEP 2: Create a 'profiles' table to store user roles and approval status.
+-- STEP 3: Create a 'profiles' table to store user roles and approval status.
 -- This table links to auth users and defaults new users to 'staff' role and 'pending' status.
 CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -61,7 +65,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- (FIX) Add status column to profiles table if it doesn't exist for backward compatibility.
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected'));
 
--- STEP 3: Create a helper function to securely check the CALLING user's role.
+-- STEP 4: Create a helper function to securely check the CALLING user's role.
 -- This function is SECURITY DEFINER, so it bypasses RLS to read the user's role from the profiles table.
 -- It is safe because it only ever checks the role of the currently authenticated user (auth.uid()).
 -- This function can be safely used in RLS policies for ANY table EXCEPT the 'profiles' table itself to avoid recursion.
@@ -84,7 +88,7 @@ $$;
 GRANT EXECUTE ON FUNCTION check_user_role(TEXT) TO authenticated;
 
 
--- STEP 4: Apply Row Level Security (RLS) to the 'profiles' table.
+-- STEP 5: Apply Row Level Security (RLS) to the 'profiles' table.
 -- (FIX) RLS policies for 'profiles' are rewritten to be non-recursive. They DO NOT call check_user_role().
 -- Admin actions on this table are handled by SECURITY DEFINER functions which bypass RLS.
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
@@ -118,7 +122,7 @@ CREATE POLICY "Users can manage their own profile" ON public.profiles FOR ALL
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 
--- STEP 5: Create a trigger to automatically create a profile when a new user signs up.
+-- STEP 6: Create a trigger to automatically create a profile when a new user signs up.
 -- The profile will be created with the default 'pending' status.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
@@ -138,7 +142,7 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 
--- STEP 6: Create secure functions for admins to manage users.
+-- STEP 7: Create secure functions for admins to manage users.
 -- These functions are SECURITY DEFINER, so they bypass RLS and can perform admin actions safely.
 -- The check for admin privileges inside them is safe because it's not part of an RLS policy evaluation context.
 
@@ -227,10 +231,14 @@ BEGIN
     IF new_user IS NOT NULL THEN
         RAISE EXCEPTION 'User with this email already exists.';
     END IF;
-
-    new_user_id := auth.admin_create_user(
+    
+    -- (FIX) Use the more modern, explicit signature for creating a user.
+    -- This avoids ambiguity and is less likely to be removed in future Supabase versions.
+    SELECT id INTO new_user_id FROM auth.admin_create_user(
         p_email,
-        p_password
+        p_password,
+        '{}'::jsonb,
+        true -- set email_confirm to true so the user is immediately active.
     );
 
     -- The handle_new_user trigger inserts a 'pending' profile. Update it to be 'approved'.
@@ -276,7 +284,7 @@ $$;
 GRANT EXECUTE ON FUNCTION update_user_status(uuid, text) TO authenticated;
 
 
--- STEP 7: Create all other application tables if they don't already exist.
+-- STEP 8: Create all other application tables if they don't already exist.
 CREATE TABLE IF NOT EXISTS public.customers (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name text NOT NULL,
@@ -343,7 +351,7 @@ CREATE TABLE IF NOT EXISTS public.website_content (
 );
 
 
--- STEP 8: Apply RLS policies to all data tables.
+-- STEP 9: Apply RLS policies to all data tables.
 -- These policies safely use 'check_user_role' because they are not for the 'profiles' table.
 
 -- Customers Table Policies
@@ -430,10 +438,88 @@ DROP POLICY IF EXISTS "Public can read website content" ON public.website_conten
 CREATE POLICY "Public can read website content" ON public.website_content FOR SELECT USING (true);
 ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
--- STEP 9: Create helper functions for the customer OTP login flow.
+-- STEP 10: Create helper functions for the customer login flow.
 -- These are SECURITY DEFINER to safely bypass RLS for specific, controlled actions.
 
+-- Function for an admin to set/update a customer's password and create their auth account if needed.
+DROP FUNCTION IF EXISTS public.admin_set_customer_password(uuid, text);
+CREATE OR REPLACE FUNCTION public.admin_set_customer_password(
+    p_customer_id uuid,
+    p_password text
+)
+RETURNS uuid -- returns the auth user's ID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_user_id uuid;
+    v_phone text;
+    new_auth_user_id uuid;
+BEGIN
+    -- 1. Ensure the caller is an admin
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    -- 2. Get customer's details from the customers table
+    SELECT "userId", phone INTO v_user_id, v_phone FROM public.customers WHERE id = p_customer_id;
+
+    IF v_phone IS NULL OR v_phone = '' THEN
+        RAISE EXCEPTION 'Customer must have a valid phone number to set a password.';
+    END IF;
+    
+    IF p_password IS NULL OR length(p_password) < 6 THEN
+        RAISE EXCEPTION 'Password must be at least 6 characters long.';
+    END IF;
+
+    IF v_user_id IS NOT NULL THEN
+        -- 3. Auth user already exists, update their password directly.
+        -- (FIX) This is a fallback method that directly updates the encrypted password
+        -- using the 'pgcrypto' extension, which is standard on Supabase. This avoids
+        -- issues with changing Supabase helper function names.
+        UPDATE auth.users
+        SET encrypted_password = crypt(p_password, gen_salt('bf'))
+        WHERE id = v_user_id;
+        
+        RETURN v_user_id;
+    ELSE
+        -- 4. No auth user exists, so create one
+        -- First, check if another auth user already has this phone number
+        IF EXISTS (SELECT 1 FROM auth.users WHERE phone = v_phone) THEN
+            RAISE EXCEPTION 'An account with this phone number already exists in the authentication system.';
+        END IF;
+
+        -- Create the user with a temporary, non-colliding email
+        SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
+            v_phone || '@ssfarmorganic.local', -- using a local, non-routable domain
+            p_password,
+            '{}'::jsonb,
+            false
+        );
+        
+        -- Immediately update the new user to use phone as the primary identifier
+        -- and clear the temporary email.
+        UPDATE auth.users
+        SET phone = v_phone,
+            phone_confirmed_at = now(),
+            email = null,
+            email_confirmed_at = null
+        WHERE id = new_auth_user_id;
+
+        -- Link the new auth user ID back to the customer record
+        UPDATE public.customers
+        SET "userId" = new_auth_user_id
+        WHERE id = p_customer_id;
+        
+        RETURN new_auth_user_id;
+    END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.admin_set_customer_password(uuid, text) TO authenticated;
+
 -- Function to check if a customer exists by phone number.
+-- This is made robust to handle different phone number formats (+91, no prefix, spaces, etc.).
 -- Granting to 'anon' allows the login page to check for a number before sending an OTP.
 CREATE OR REPLACE FUNCTION public.customer_exists_by_phone(p_phone text)
 RETURNS boolean
@@ -442,12 +528,18 @@ SECURITY DEFINER
 STABLE
 SET search_path = public
 AS $$
+DECLARE
+    ten_digit_input text;
 BEGIN
-  RETURN EXISTS (
-    SELECT 1
-    FROM public.customers
-    WHERE phone = p_phone
-  );
+    -- Extract the last 10 digits from the input, which is the standard mobile number in India.
+    ten_digit_input := right(regexp_replace(p_phone, '\D', '', 'g'), 10);
+
+    -- Check if a customer exists with a matching 10-digit number, ignoring formatting in the database.
+    RETURN EXISTS (
+      SELECT 1
+      FROM public.customers
+      WHERE right(regexp_replace(phone, '\D', '', 'g'), 10) = ten_digit_input
+    );
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.customer_exists_by_phone(text) TO anon;
@@ -455,16 +547,23 @@ GRANT EXECUTE ON FUNCTION public.customer_exists_by_phone(text) TO authenticated
 
 -- Function for a newly signed-in user to link their auth ID to their customer profile.
 -- It's safe because it only ever uses the ID of the *currently calling user* (auth.uid()).
+-- This version robustly matches phone numbers regardless of formatting.
 CREATE OR REPLACE FUNCTION public.link_customer_to_auth_user(p_phone text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+    ten_digit_input text;
 BEGIN
-  UPDATE public.customers
-  SET "userId" = auth.uid()
-  WHERE phone = p_phone;
+    -- Extract the last 10 digits from the input to ensure a consistent format for matching.
+    ten_digit_input := right(regexp_replace(p_phone, '\D', '', 'g'), 10);
+
+    -- Find the customer with the matching 10-digit number and link their auth ID.
+    UPDATE public.customers
+    SET "userId" = auth.uid()
+    WHERE right(regexp_replace(phone, '\D', '', 'g'), 10) = ten_digit_input;
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.link_customer_to_auth_user(text) TO authenticated;
@@ -497,6 +596,7 @@ DROP FUNCTION IF EXISTS public.update_user_status(uuid, text);
 DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
 DROP FUNCTION IF EXISTS public.customer_exists_by_phone(text);
 DROP FUNCTION IF EXISTS public.link_customer_to_auth_user(text);
+DROP FUNCTION IF EXISTS public.admin_set_customer_password(uuid, text);
 
 
 -- After running this, you MUST run the 'Full Setup Script' to recreate the tables.

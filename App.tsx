@@ -440,12 +440,7 @@ const App: React.FC = () => {
     });
 
     if (signInError) {
-        console.error('Login error:', signInError.message);
-        let errorMessage = signInError.message;
-        if (errorMessage.toLowerCase().includes('invalid login credentials')) {
-            errorMessage = "Invalid email or password. If you've just signed up, please check your email to confirm your account before logging in.";
-        }
-        return { success: false, error: errorMessage };
+        return { success: false, error: getFriendlyErrorMessage(signInError) };
     }
 
     if (signInData.user) {
@@ -481,68 +476,19 @@ const App: React.FC = () => {
 
     return { success: false, error: 'An unexpected error occurred during login.' };
   };
-
-  const handleSendOtp = async (phone: string): Promise<{ success: boolean; error?: string }> => {
+  
+  const handleCustomerLogin = async (phone: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const formattedPhone = formatPhoneNumber(phone);
-    
-    const { data: customerExists, error: rpcError } = await supabase
-        .rpc('customer_exists_by_phone', { p_phone: formattedPhone });
-
-    if (rpcError) {
-        // Log the full error object for debugging
-        console.error("Error checking customer existence:", JSON.stringify(rpcError, null, 2));
-        
-        // Provide a more specific error message if the function is missing
-        if (rpcError.code === '42883' || rpcError.code === '42501' || rpcError.code === 'PGRST202') { // 42883: function does not exist, 42501: permission denied, PGRST202: not in schema cache
-             return { success: false, error: 'Database configuration error. Please ask the administrator to run the latest setup script from the Database Helper page.' };
-        }
-        
-        // Provide a clearer, user-friendly error from the database if available
-        const userFriendlyMessage = rpcError.message ? `Could not verify number: ${rpcError.message}` : 'There was a problem verifying your number. Please try again.';
-        return { success: false, error: userFriendlyMessage };
-    }
-    
-    if (!customerExists) {
-        return { success: false, error: 'No customer account found with this mobile number.' };
-    }
-
-    const { error } = await supabase.auth.signInWithOtp({
-        phone: formattedPhone,
+    const { error } = await supabase.auth.signInWithPassword({
+      phone: formattedPhone,
+      password: pass,
     });
 
     if (error) {
-        return { success: false, error: getFriendlyErrorMessage(error) };
+      return { success: false, error: getFriendlyErrorMessage(error) };
     }
+    // onAuthStateChange will handle fetching data and setting the session
     return { success: true };
-  };
-
-  const handleVerifyOtp = async (phone: string, otp: string): Promise<{ success: boolean; error?: string }> => {
-      const formattedPhone = formatPhoneNumber(phone);
-      const { data, error } = await supabase.auth.verifyOtp({
-          phone: formattedPhone,
-          token: otp,
-          type: 'sms'
-      });
-  
-      if (error) {
-          return { success: false, error: getFriendlyErrorMessage(error) };
-      }
-  
-      if (data.user) {
-          // Securely link the auth user to the customer profile via RPC.
-          // This bypasses RLS for the one-time linking action.
-          const { error: rpcError } = await supabase
-              .rpc('link_customer_to_auth_user', { p_phone: formattedPhone });
-          
-          if (rpcError) {
-              await supabase.auth.signOut();
-              console.error('Error linking customer account:', rpcError);
-              return { success: false, error: `Could not link your account. Please contact support.` };
-          }
-      }
-      
-      // onAuthStateChange will handle fetching data and setting the session
-      return { success: true };
   };
 
   const handleLogout = async () => {
@@ -667,7 +613,7 @@ const App: React.FC = () => {
                 ) : currentPage === 'products' && websiteContent ? (
                     <ProductsPage content={websiteContent.productsPage} />
                 ) : currentPage === 'login' ? (
-                    <LoginPage onAdminLogin={handleAdminLogin} onSendOtp={handleSendOtp} onVerifyOtp={handleVerifyOtp} onBackToHome={() => setCurrentPage('home')} />
+                    <LoginPage onAdminLogin={handleAdminLogin} onCustomerLogin={handleCustomerLogin} onBackToHome={() => setCurrentPage('home')} />
                 ) : (
                     // Fallback for when content is still loading
                      <div className="flex items-center justify-center min-h-screen">
