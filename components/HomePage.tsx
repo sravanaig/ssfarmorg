@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
 import { MilkIcon, CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, MenuIcon, XIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
@@ -132,16 +133,45 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
         {/* About Our Dairy Farm Section */}
         <section className="py-16 bg-green-50">
             <div className="container mx-auto px-6">
+                <div className="text-center mb-12">
+                    <h2 className="text-3xl font-bold text-gray-800 mt-2 mb-4">{content.dairyFarm.title}</h2>
+                    <p className="text-gray-600 max-w-3xl mx-auto">
+                       {content.dairyFarm.text}
+                    </p>
+                </div>
                 <div className="grid md:grid-cols-2 gap-12 items-center">
-                    <div className="text-center md:text-left">
-                        <span className="text-6xl"></span>
-                        <h2 className="text-3xl font-bold text-gray-800 mt-2 mb-4">{content.dairyFarm.title}</h2>
-                        <p className="text-gray-600">
-                           {content.dairyFarm.text}
-                        </p>
-                    </div>
                     <div>
                          <img src="https://risingnepaldaily.com/storage/media/26906/murra-1.jpg" alt="Our healthy buffaloes at the dairy farm" className="rounded-lg shadow-lg"/>
+                    </div>
+                    <div className="mt-8 md:mt-0">
+                        <h3 className="text-2xl font-semibold text-gray-800 mb-6 text-center md:text-left">Our Process of Purity</h3>
+                        <ol className="relative border-l border-gray-200">
+                            <li className="mb-10 ml-6">
+                                <span className="absolute flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full -left-4 ring-8 ring-white text-lg">🐄</span>
+                                <h4 className="font-semibold text-gray-900">Extracting Milk</h4>
+                                <p className="text-sm text-gray-600">Gently extracted from our healthy, stress-free buffaloes using hygienic, modern methods.</p>
+                            </li>
+                            <li className="mb-10 ml-6">
+                                <span className="absolute flex items-center justify-center w-8 h-8 bg-green-100 rounded-full -left-4 ring-8 ring-white text-lg">🔬</span>
+                                <h4 className="font-semibold text-gray-900">Filtering &amp; Purity Testing</h4>
+                                <p className="text-sm text-gray-600">The milk is filtered to remove impurities and tested for quality to ensure it meets our high standards.</p>
+                            </li>
+                            <li className="mb-10 ml-6">
+                                <span className="absolute flex items-center justify-center w-8 h-8 bg-yellow-100 rounded-full -left-4 ring-8 ring-white text-lg">🍼</span>
+                                <h4 className="font-semibold text-gray-900">Hygienic Packing</h4>
+                                <p className="text-sm text-gray-600">Immediately chilled and packed into sealed, sterile bottles to lock in freshness and nutrients.</p>
+                            </li>
+                            <li className="mb-10 ml-6">
+                                <span className="absolute flex items-center justify-center w-8 h-8 bg-purple-100 rounded-full -left-4 ring-8 ring-white text-lg">❄️</span>
+                                <h4 className="font-semibold text-gray-900">Cold Storage</h4>
+                                <p className="text-sm text-gray-600">Stored in a controlled, cold environment to maintain its purity until it's ready for delivery.</p>
+                            </li>
+                            <li className="ml-6">
+                                <span className="absolute flex items-center justify-center w-8 h-8 bg-red-100 rounded-full -left-4 ring-8 ring-white text-lg">🚚</span>
+                                <h4 className="font-semibold text-gray-900">Doorstep Delivery</h4>
+                                <p className="text-sm text-gray-600">Our reliable delivery team brings the fresh, chilled milk straight to your home every morning.</p>
+                            </li>
+                        </ol>
                     </div>
                 </div>
             </div>
