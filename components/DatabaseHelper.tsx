@@ -352,8 +352,18 @@ CREATE TABLE IF NOT EXISTS public.website_content (
 );
 
 
--- STEP 9: Apply RLS policies to all data tables.
--- These policies safely use 'check_user_role' because they are not for the 'profiles' table.
+-- STEP 9: Grant table-level permissions and apply RLS policies.
+
+-- First, grant basic postgres permissions. RLS policies will then filter the rows.
+-- This is critical for access. Without this, RLS policies will not even be evaluated.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.customers TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.orders TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.deliveries TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.pending_deliveries TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.payments TO authenticated;
+GRANT SELECT ON TABLE public.website_content TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON TABLE public.website_content TO authenticated;
 
 -- Customers Table Policies
 ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;

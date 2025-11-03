@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Customer, Order, Delivery } from '../types';
+import type { Customer, Order, Delivery, PendingDelivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon, WhatsAppIcon } from './Icons';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
@@ -11,9 +11,11 @@ interface OrderManagerProps {
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   deliveries: Delivery[];
   setDeliveries: React.Dispatch<React.SetStateAction<Delivery[]>>;
+  pendingDeliveries: PendingDelivery[];
+  setPendingDeliveries: React.Dispatch<React.SetStateAction<PendingDelivery[]>>;
 }
 
-const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries }) => {
+const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries, pendingDeliveries, setPendingDeliveries }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, number>>(new Map());
@@ -45,6 +47,16 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
     });
     return orderMap;
   }, [orders, selectedDate]);
+
+  const pendingDeliveriesForDate = useMemo(() => {
+    const map = new Map<string, number>();
+    pendingDeliveries.forEach(pd => {
+        if (pd.date === selectedDate) {
+            map.set(pd.customerId, pd.quantity);
+        }
+    });
+    return map;
+  }, [pendingDeliveries, selectedDate]);
 
   const handleQuantityChange = (customerId: string, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
@@ -87,20 +99,25 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             quantity,
         }));
 
-        // Data for ORDERS table
+        // Data for ORDERS table (source of truth for this view)
         const ordersToUpsert = dataToUpsert.filter(o => o.quantity > 0);
         const customerIdsToDeleteOrders = dataToUpsert
             .filter(d => d.quantity === 0)
             .map(d => d.customerId)
             .filter(id => ordersForDate.has(id));
 
-        // Data for DELIVERIES table
-        const deliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
-        const deliveriesForDateMap = new Map(deliveries.filter(d => d.date === selectedDate).map(d => [d.customerId, d.quantity]));
-        const customerIdsToDeleteDeliveries = dataToUpsert
+        // Data for PENDING_DELIVERIES table (submission for approval)
+        const pendingDeliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
+        const customerIdsToDeletePending = dataToUpsert
             .filter(d => d.quantity === 0)
             .map(d => d.customerId)
-            .filter(id => deliveriesForDateMap.has(id));
+            .filter(id => pendingDeliveriesForDate.has(id));
+
+        // Data for DELIVERIES table (clearing previously approved entries)
+        const customerIdsWithChanges = dataToUpsert.map(d => d.customerId);
+        const deliveriesForDateMap = new Map(deliveries.filter(d => d.date === selectedDate).map(d => [d.customerId, d.quantity]));
+        const customerIdsToDeleteDeliveries = customerIdsWithChanges.filter(id => deliveriesForDateMap.has(id));
+
 
         // Create promises for all database operations
         const orderUpsertPromise = ordersToUpsert.length > 0
@@ -110,22 +127,35 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         const orderDeletePromise = customerIdsToDeleteOrders.length > 0
             ? supabase.from('orders').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteOrders)
             : Promise.resolve({ error: null });
-
-        const deliveryUpsertPromise = deliveriesToUpsert.length > 0
-            ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select()
+        
+        const pendingDeliveryUpsertPromise = pendingDeliveriesToUpsert.length > 0
+            ? supabase.from('pending_deliveries').upsert(pendingDeliveriesToUpsert, { onConflict: 'customerId,date' }).select()
             : Promise.resolve({ data: [], error: null });
+
+        const pendingDeliveryDeletePromise = customerIdsToDeletePending.length > 0
+            ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeletePending)
+            : Promise.resolve({ error: null });
 
         const deliveryDeletePromise = customerIdsToDeleteDeliveries.length > 0
             ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteDeliveries)
             : Promise.resolve({ error: null });
 
 
-        const [orderUpsertResult, orderDeleteResult, deliveryUpsertResult, deliveryDeleteResult] = await Promise.all([orderUpsertPromise, orderDeletePromise, deliveryUpsertPromise, deliveryDeletePromise]);
+        const [orderUpsertResult, orderDeleteResult, pendingUpsertResult, pendingDeleteResult, deliveryDeleteResult] = await Promise.all([
+            orderUpsertPromise,
+            orderDeletePromise,
+            pendingDeliveryUpsertPromise,
+            pendingDeliveryDeletePromise,
+            deliveryDeletePromise
+        ]);
         
         if (orderUpsertResult.error) throw orderUpsertResult.error;
         if (orderDeleteResult.error) throw orderDeleteResult.error;
-        if (deliveryUpsertResult.error) throw deliveryUpsertResult.error;
+        if (pendingUpsertResult.error) throw pendingUpsertResult.error;
+        if (pendingDeleteResult.error) throw pendingDeleteResult.error;
         if (deliveryDeleteResult.error) throw deliveryDeleteResult.error;
+
+        // --- Update local state ---
 
         setOrders(prev => {
             const afterDelete = prev.filter(o => !(o.date === selectedDate && customerIdsToDeleteOrders.includes(o.customerId)));
@@ -136,17 +166,19 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             return Array.from(updatedMap.values());
         });
 
-        setDeliveries(prev => {
-            const afterDelete = prev.filter(d => !(d.date === selectedDate && customerIdsToDeleteDeliveries.includes(d.customerId)));
-            const updatedMap = new Map(afterDelete.map(d => [`${d.customerId}-${d.date}`, d]));
-            if (deliveryUpsertResult.data) {
-                (deliveryUpsertResult.data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
+        setPendingDeliveries(prev => {
+            const afterDelete = prev.filter(pd => !(pd.date === selectedDate && customerIdsToDeletePending.includes(pd.customerId)));
+            const updatedMap = new Map(afterDelete.map(pd => [`${pd.customerId}-${pd.date}`, pd]));
+            if (pendingUpsertResult.data) {
+                (pendingUpsertResult.data as PendingDelivery[]).forEach(pd => updatedMap.set(`${pd.customerId}-${pd.date}`, pd));
             }
             return Array.from(updatedMap.values());
         });
+        
+        setDeliveries(prev => prev.filter(d => !(d.date === selectedDate && customerIdsToDeleteDeliveries.includes(d.customerId))));
 
         setPendingChanges(new Map());
-        alert(`Successfully saved ${changes.length} orders for ${selectedDate}. Deliveries have been updated accordingly.`);
+        alert(`Successfully saved ${changes.length} orders and submitted them for delivery approval. Any previously approved deliveries for this date have been cleared.`);
 
     } catch (error: any) {
         alert(`Error saving orders: ${getFriendlyErrorMessage(error)}`);
@@ -167,7 +199,7 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
 
     if (changesMade > 0) {
         setPendingChanges(newChanges);
-        alert(`${changesMade} customers have been set to their default quantity. Click 'Save Orders' to confirm.`);
+        alert(`${changesMade} customers have been set to their default quantity. Click 'Save & Submit' to confirm.`);
     } else {
         alert("All active customers already have an order entry or a pending change for this date.");
     }
@@ -190,7 +222,6 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
     }
     
     let totalQuantity = 0;
-    // FIX: Explicitly type customerMap to resolve type inference issue.
     const customerMap: Map<string, string> = new Map(customers.map(c => [c.id, c.name]));
 
     const orderLines = Array.from(ordersToSend.entries())
@@ -199,26 +230,27 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             const nameB = customerMap.get(b[0]) || '';
             return nameA.localeCompare(nameB);
         })
-        .map(([customerId, quantity]) => {
+        .map(([customerId, quantity], index) => {
             totalQuantity += quantity;
             const customerName = customerMap.get(customerId) || 'Unknown Customer';
-            return `- ${customerName}: ${quantity} L`;
+            return `${index + 1}. ${customerName}: *${quantity} L*`;
         })
         .join('\n');
     
     const formattedDate = new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'long', year: 'numeric' });
 
-    const message = `
-*Orders for ${formattedDate}*
+    const message = `*SS Farm Organic - Daily Orders*
+*Date:* ${formattedDate}
+-----------------------------------
 
 ${orderLines}
 
 -----------------------------------
-*Total Quantity: ${totalQuantity.toFixed(2)} L*
-*Total Customers: ${ordersToSend.size}*
+*Total Quantity:* ${totalQuantity.toFixed(2)} L
+*Total Customers:* ${ordersToSend.size}
     `.trim().replace(/^\s+/gm, '');
 
-    const phoneNumber = '+91 8333977567';
+    const phoneNumber = '918333977567';
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
@@ -317,7 +349,7 @@ ${orderLines}
                         disabled={isSaving} 
                         className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {isSaving ? 'Saving...' : 'Save Orders'}
+                        {isSaving ? 'Submitting...' : 'Save & Submit for Delivery'}
                     </button>
                 </div>
             </div>

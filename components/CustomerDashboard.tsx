@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { MilkIcon, LogoutIcon } from './Icons';
+import { MilkIcon, LogoutIcon, SpinnerIcon } from './Icons';
+import { supabase } from '../lib/supabaseClient';
+import Modal from './Modal';
 
 interface CustomerDashboardProps {
     customer: Customer;
@@ -11,6 +13,12 @@ interface CustomerDashboardProps {
 
 const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, deliveries, payments, onLogout }) => {
     const [billingMonth, setBillingMonth] = useState<string>(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [passwordError, setPasswordError] = useState('');
+    const [isChangingPassword, setIsChangingPassword] = useState(false);
 
     const billDetails = useMemo(() => {
         const [year, month] = billingMonth.split('-').map(Number);
@@ -60,6 +68,54 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, deliver
         return { deliveriesForPeriod, paymentsForPeriod, totalQuantity, totalAmount, totalPaid, balance, previousBalance };
     }, [billingMonth, customer, deliveries, payments]);
 
+    const handlePasswordChange = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setPasswordError('');
+
+        if (newPassword.length < 6) {
+            setPasswordError('New password must be at least 6 characters long.');
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            setPasswordError('New passwords do not match.');
+            return;
+        }
+
+        setIsChangingPassword(true);
+        
+        const email = `${customer.phone.replace(/\D/g, '').slice(-10)}@ssfarmorganic.local`;
+
+        // 1. Verify current password by trying to sign in. This is a common pattern to ensure the user is who they say they are.
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password: currentPassword
+        });
+
+        if (signInError) {
+            // Note: Supabase might keep the user signed in with the new session. This is generally fine.
+            // The main goal is to verify the old password.
+            setPasswordError('Your current password is not correct.');
+            setIsChangingPassword(false);
+            return;
+        }
+
+        // 2. If signIn is successful, update the password for the current user.
+        const { error: updateError } = await supabase.auth.updateUser({
+            password: newPassword
+        });
+
+        if (updateError) {
+            setPasswordError(`Failed to update password: ${updateError.message}`);
+        } else {
+            alert('Password updated successfully!');
+            setIsPasswordModalOpen(false);
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+        }
+        setIsChangingPassword(false);
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 font-sans">
             <header className="bg-white shadow-sm">
@@ -68,10 +124,15 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, deliver
                         <MilkIcon className="h-8 w-8 text-blue-600"/>
                         <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
                     </div>
-                    <button onClick={onLogout} className="flex items-center px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
-                        <LogoutIcon className="h-5 w-5 md:mr-2" />
-                        <span className="hidden md:block">Logout</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setIsPasswordModalOpen(true)} className="px-3 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                            Change Password
+                        </button>
+                        <button onClick={onLogout} className="flex items-center px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                            <LogoutIcon className="h-5 w-5 md:mr-2" />
+                            <span className="hidden md:block">Logout</span>
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -150,6 +211,34 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, deliver
                     </div>
                 </div>
             </main>
+            <Modal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} title="Change Your Password">
+                <form onSubmit={handlePasswordChange} className="space-y-4">
+                    {passwordError && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded" role="alert">
+                            {passwordError}
+                        </div>
+                    )}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Current Password</label>
+                        <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">New Password</label>
+                        <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Confirm New Password</label>
+                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+                    <div className="flex justify-end pt-4 space-x-2">
+                        <button type="button" onClick={() => setIsPasswordModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" disabled={isChangingPassword} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center">
+                            {isChangingPassword && <SpinnerIcon className="animate-spin h-4 w-4 mr-2" />}
+                            {isChangingPassword ? 'Updating...' : 'Update Password'}
+                        </button>
+                    </div>
+                </form>
+            </Modal>
         </div>
     );
 };

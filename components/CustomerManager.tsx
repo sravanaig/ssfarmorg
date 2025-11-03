@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Customer } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon, SpinnerIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -22,9 +22,10 @@ interface CustomerFormProps {
     onClose: () => void;
     customerToEdit?: Customer | null;
     isSubmitting: boolean;
+    onResetPassword: (newPassword: string) => Promise<{success: boolean}>;
 }
 
-const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customerToEdit, isSubmitting }) => {
+const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customerToEdit, isSubmitting, onResetPassword }) => {
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
@@ -35,6 +36,11 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const [previousBalance, setPreviousBalance] = useState(0);
     const [balanceAsOfDate, setBalanceAsOfDate] = useState('');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+    const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+    const [newPassword, setNewPassword] = useState('');
+    const [isResetting, setIsResetting] = useState(false);
+    const [resetError, setResetError] = useState('');
 
     useEffect(() => {
         if (customerToEdit) {
@@ -91,113 +97,176 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         }
     };
 
+    const handleResetSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setResetError('');
+        if (newPassword.length < 6) {
+            setResetError('Password must be at least 6 characters long.');
+            return;
+        }
+        setIsResetting(true);
+        const { success } = await onResetPassword(newPassword);
+        setIsResetting(false);
+        if (success) {
+            setNewPassword('');
+            setIsResetPasswordModalOpen(false);
+        }
+    };
+
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} required className={`mt-1 block w-full border ${errors.name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
-                {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Address</label>
-                <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className={`mt-1 block w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
-                {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <>
+            <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Mobile Number (for Login)</label>
-                    <div className="mt-1 flex">
-                        <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
-                        <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
+                    <label className="block text-sm font-medium text-gray-700">Name</label>
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} required className={`mt-1 block w-full border ${errors.name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                    {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Address</label>
+                    <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className={`mt-1 block w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                    {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Mobile Number (for Login)</label>
+                        <div className="mt-1 flex">
+                            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
+                            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
+                        </div>
+                        {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                        <p className="mt-1 text-xs text-gray-500">Default password is the mobile number + * (e.g., 9876543210*)</p>
                     </div>
-                    {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
-                    <p className="mt-1 text-xs text-gray-500">Default password is the mobile number + * (e.g., 9876543210*)</p>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Email</label>
+                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={`mt-1 block w-full border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
+                        {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                    </div>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Email</label>
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={`mt-1 block w-full border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
-                    {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Milk Price (per liter)</label>
+                        <input 
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={milkPrice}
+                            onChange={e => setMilkPrice(e.target.value ? parseFloat(e.target.value) : 0)}
+                            required 
+                            className={`mt-1 block w-full border ${errors.milkPrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                        />
+                        {errors.milkPrice && <p className="mt-1 text-xs text-red-600">{errors.milkPrice}</p>}
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
+                        <select
+                            value={defaultQuantity}
+                            onChange={e => setDefaultQuantity(parseFloat(e.target.value))}
+                            required
+                            className={`mt-1 block w-full border ${errors.defaultQuantity ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                        >
+                            <option value={0.5}>1/2 liter</option>
+                            <option value={1}>1 liter</option>
+                            <option value={1.5}>1 1/2 liter</option>
+                            <option value={2}>2 liter</option>
+                            <option value={2.5}>2 1/2 liter</option>
+                            <option value={3}>3 liter</option>
+                        </select>
+                        {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
+                    </div>
                 </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+                {!customerToEdit && (
+                    <div className="p-4 bg-gray-50 border rounded-md">
+                        <h4 className="text-sm font-medium text-gray-600 mb-2">Opening Balance (Optional)</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Balance Amount</label>
+                                <input 
+                                    type="number"
+                                    step="0.01"
+                                    value={previousBalance}
+                                    onChange={e => setPreviousBalance(e.target.value ? parseFloat(e.target.value) : 0)}
+                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                />
+                                <p className="mt-1 text-xs text-gray-500">Use a negative value for credit.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Balance as of Date</label>
+                                <input 
+                                    type="date"
+                                    value={balanceAsOfDate}
+                                    onChange={e => setBalanceAsOfDate(e.target.value)}
+                                    className={`mt-1 block w-full border ${errors.balanceAsOfDate ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                                />
+                                {errors.balanceAsOfDate && <p className="mt-1 text-xs text-red-600">{errors.balanceAsOfDate}</p>}
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Milk Price (per liter)</label>
-                    <input 
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={milkPrice}
-                        onChange={e => setMilkPrice(e.target.value ? parseFloat(e.target.value) : 0)}
-                        required 
-                        className={`mt-1 block w-full border ${errors.milkPrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    />
-                    {errors.milkPrice && <p className="mt-1 text-xs text-red-600">{errors.milkPrice}</p>}
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Default Quantity</label>
+                    <label className="block text-sm font-medium text-gray-700">Status</label>
                     <select
-                        value={defaultQuantity}
-                        onChange={e => setDefaultQuantity(parseFloat(e.target.value))}
+                        value={status}
+                        onChange={e => setStatus(e.target.value as 'active' | 'inactive')}
                         required
-                        className={`mt-1 block w-full border ${errors.defaultQuantity ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     >
-                        <option value={0.5}>1/2 liter</option>
-                        <option value={1}>1 liter</option>
-                        <option value={1.5}>1 1/2 liter</option>
-                        <option value={2}>2 liter</option>
-                        <option value={2.5}>2 1/2 liter</option>
-                        <option value={3}>3 liter</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
                     </select>
-                    {errors.defaultQuantity && <p className="mt-1 text-xs text-red-600">{errors.defaultQuantity}</p>}
                 </div>
-            </div>
-            {!customerToEdit && (
-                <div className="p-4 bg-gray-50 border rounded-md">
-                    <h4 className="text-sm font-medium text-gray-600 mb-2">Opening Balance (Optional)</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Balance Amount</label>
-                            <input 
-                                type="number"
-                                step="0.01"
-                                value={previousBalance}
-                                onChange={e => setPreviousBalance(e.target.value ? parseFloat(e.target.value) : 0)}
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            />
-                            <p className="mt-1 text-xs text-gray-500">Use a negative value for credit.</p>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Balance as of Date</label>
-                            <input 
-                                type="date"
-                                value={balanceAsOfDate}
-                                onChange={e => setBalanceAsOfDate(e.target.value)}
-                                className={`mt-1 block w-full border ${errors.balanceAsOfDate ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                            />
-                            {errors.balanceAsOfDate && <p className="mt-1 text-xs text-red-600">{errors.balanceAsOfDate}</p>}
-                        </div>
+
+                {customerToEdit && (
+                    <div className="mt-6 pt-4 border-t">
+                        <h4 className="text-sm font-medium text-gray-600 mb-2">Login Management</h4>
+                        <p className="text-xs text-gray-500 mb-2">
+                            {customerToEdit.userId ? 
+                                `This customer has an active login. You can reset their password below.` : 
+                                `This customer does not have a login yet. Saving their details with a valid phone number will automatically create one.`
+                            }
+                        </p>
+                        {customerToEdit.userId && (
+                             <button 
+                                type="button" 
+                                onClick={() => setIsResetPasswordModalOpen(true)} 
+                                className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+                            >
+                                Reset Customer Password
+                            </button>
+                        )}
                     </div>
+                )}
+
+                <div className="flex justify-end pt-4 space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-wait">
+                        {isSubmitting ? 'Saving...' : (customerToEdit ? 'Update' : 'Add') + ' Customer'}
+                    </button>
                 </div>
-            )}
-             <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
-                <select
-                    value={status}
-                    onChange={e => setStatus(e.target.value as 'active' | 'inactive')}
-                    required
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                </select>
-            </div>
-            <div className="flex justify-end pt-4 space-x-2">
-                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-wait">
-                    {isSubmitting ? 'Saving...' : (customerToEdit ? 'Update' : 'Add') + ' Customer'}
-                </button>
-            </div>
-        </form>
+            </form>
+            <Modal isOpen={isResetPasswordModalOpen} onClose={() => setIsResetPasswordModalOpen(false)} title={`Reset Password for ${customerToEdit?.name}`}>
+                <form onSubmit={handleResetSubmit} className="space-y-4">
+                    {resetError && <p className="text-xs text-red-600">{resetError}</p>}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">New Password</label>
+                        <input 
+                            type="text" 
+                            value={newPassword} 
+                            onChange={e => setNewPassword(e.target.value)} 
+                            required 
+                            className={`mt-1 block w-full border ${resetError ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3`}
+                        />
+                         <p className="mt-2 text-xs text-gray-500">The customer will need to be informed of this new password manually.</p>
+                    </div>
+                    <div className="flex justify-end pt-4 space-x-2">
+                        <button type="button" onClick={() => setIsResetPasswordModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" disabled={isResetting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center">
+                            {isResetting && <SpinnerIcon className="animate-spin h-4 w-4 mr-2" />}
+                            {isResetting ? 'Resetting...' : 'Set New Password'}
+                        </button>
+                    </div>
+                </form>
+            </Modal>
+        </>
     );
 };
 
@@ -339,6 +408,29 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         setIsSubmitting(false);
     }
   };
+
+  const handleResetPassword = async (customerId: string, newPassword: string): Promise<{success: boolean}> => {
+    if (!window.confirm(`Are you sure you want to reset the password for this customer?`)) {
+        return { success: false };
+    }
+
+    try {
+        const { error } = await supabase.rpc('admin_set_customer_password', {
+            p_customer_id: customerId,
+            p_password: newPassword
+        });
+
+        if (error) throw error;
+        
+        alert(`Password has been successfully reset to:\n\n${newPassword}\n\nPlease share this with the customer.`);
+        return { success: true };
+
+    } catch (error: any) {
+        alert(`Failed to reset password: ${getFriendlyErrorMessage(error)}`);
+        return { success: false };
+    }
+  };
+
 
   const handleDeleteCustomer = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this customer? This will also delete their login and all associated data. This action cannot be undone.')) {
@@ -530,6 +622,12 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 onClose={() => setIsModalOpen(false)}
                 customerToEdit={customerToEdit}
                 isSubmitting={isSubmitting}
+                onResetPassword={async (newPassword) => {
+                    if (customerToEdit) {
+                        return await handleResetPassword(customerToEdit.id, newPassword);
+                    }
+                    return { success: false };
+                }}
             />
         </Modal>
         
