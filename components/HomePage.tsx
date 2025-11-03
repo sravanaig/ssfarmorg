@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
-import { MilkIcon, CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, MenuIcon, XIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
+// Fix: Removed MilkIcon as it does not exist in './Icons'. Also removed other unused icons.
+import { CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
 interface HomePageProps {
   content: WebsiteContent;

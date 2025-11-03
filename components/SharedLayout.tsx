@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MilkIcon, MenuIcon, XIcon } from './Icons';
+import { MenuIcon, XIcon } from './Icons';
 import type { Page } from '../App';
 
 interface SharedLayoutProps {
@@ -35,7 +35,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
             <header className="bg-white shadow-sm sticky top-0 z-50">
                 <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
                 <button onClick={() => handleNavClick('home')} className="flex items-center space-x-2">
-                    <MilkIcon className="h-8 w-8 text-blue-600"/>
+                    <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-8 w-8" />
                     <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
                 </button>
                 
@@ -84,7 +84,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
                     <div>
                     <div className="flex items-center justify-center md:justify-start space-x-2 mb-4">
-                        <MilkIcon className="h-8 w-8 text-blue-400"/>
+                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-8 w-8" />
                         <span className="text-xl font-bold">ssfarmorganic</span>
                     </div>
                     <p className="text-gray-400">Delivering pure, farm-fresh milk and happiness to your doorstep every day.</p>

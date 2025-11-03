@@ -1,7 +1,7 @@
 
 
 import React, { useState } from 'react';
-import { MilkIcon, ArrowLeftIcon, SpinnerIcon } from './Icons';
+import { ArrowLeftIcon, SpinnerIcon } from './Icons';
 
 interface LoginPageProps {
     onAdminLogin: (email: string, pass: string) => Promise<{ success: boolean, error?: string }>;
@@ -101,7 +101,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
                 
                 <div className="p-8">
                     <div className="text-center mb-8">
-                        <MilkIcon className="h-12 w-12 text-blue-600 mx-auto"/>
+                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-12 w-12 mx-auto" />
                         <h2 className="mt-4 text-3xl font-bold text-gray-800">{mode === 'admin' ? 'Admin Login' : 'Customer Portal'}</h2>
                         <p className="text-gray-500">{mode === 'admin' ? 'Access your dashboard' : 'Login with your mobile and password'}</p>
                     </div>

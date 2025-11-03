@@ -1,5 +1,5 @@
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, MilkIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
 import type { Profile } from '../types';
 
 type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
@@ -76,7 +76,7 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
     <aside className={`absolute inset-y-0 left-0 z-30 w-64 px-4 py-8 bg-white border-r transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
-                <MilkIcon className="h-8 w-8 text-blue-600"/>
+                <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-8 w-8" />
                 <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
             </div>
             <button onClick={() => setOpen(false)} className="text-gray-500 lg:hidden">

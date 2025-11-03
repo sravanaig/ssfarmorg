@@ -16,10 +16,6 @@ export const CreditCardIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) =
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
 );
 
-export const MilkIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2h8"></path><path d="M9 2v2.34c0 .55.24 1.06.64 1.41l1.41 1.25c.4.35.64.86.64 1.41V18a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8.41c0-.55.24-1.06.64-1.41l1.41-1.25A2 2 0 0 1 9 4.34V2Z"></path><path d="M15 2v2.34a2 2 0 0 0 .64 1.41l1.41 1.25c.4.35.64.86.64 1.41V18a2 2 0 0 1-2 2h-1"></path></svg>
-);
-
 export const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
 );

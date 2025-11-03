@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { MilkIcon, LogoutIcon, SpinnerIcon } from './Icons';
+import { LogoutIcon, SpinnerIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import Modal from './Modal';
 
@@ -121,7 +121,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ customer, deliver
             <header className="bg-white shadow-sm">
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                     <div className="flex items-center space-x-2">
-                        <MilkIcon className="h-8 w-8 text-blue-600"/>
+                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-8 w-8" />
                         <span className="text-xl font-bold text-gray-800">ssfarmorganic</span>
                     </div>
                     <div className="flex items-center gap-2">

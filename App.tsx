@@ -11,7 +11,7 @@ import PaymentManager from './components/PaymentManager';
 import HomePage from './components/HomePage';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
-import { MilkIcon, MenuIcon, LogoutIcon } from './components/Icons';
+import { MenuIcon, LogoutIcon } from './components/Icons';
 import ProductsPage from './components/ProductsPage';
 import SharedLayout from './components/SharedLayout';
 import CmsManager from './components/CmsManager';
@@ -562,7 +562,7 @@ const App: React.FC = () => {
     <>
         {isLoading ? (
             <div className="flex items-center justify-center min-h-screen">
-                <MilkIcon className="h-12 w-12 text-blue-600 animate-pulse" />
+                <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-12 w-12 animate-pulse" />
             </div>
         ) : isAuthenticated ? (
             renderDashboard()
@@ -577,7 +577,7 @@ const App: React.FC = () => {
                 ) : (
                     // Fallback for when content is still loading
                      <div className="flex items-center justify-center min-h-screen">
-                        <MilkIcon className="h-12 w-12 text-blue-600 animate-pulse" />
+                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-12 w-12 animate-pulse" />
                     </div>
                 )}
             </SharedLayout>
