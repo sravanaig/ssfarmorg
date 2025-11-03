@@ -257,7 +257,7 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
                             <img src={`https://ui-avatars.com/api/?name=${founder.name.replace(' ', '+')}&background=dbeafe&color=2563eb&size=96`} alt={`Founder ${founder.name}`} className="w-24 h-24 rounded-full mx-auto mb-4" />
                             <h3 className="text-xl font-bold">{founder.name}</h3>
                             <p className="text-blue-600 font-semibold mb-2">{founder.title}</p>
-                            <p className="text-gray-600">{founder.bio}</p>
+                            <p className="text-gray-600 text-justify">{founder.bio}</p>
                         </div>
                     ))}
                 </div>

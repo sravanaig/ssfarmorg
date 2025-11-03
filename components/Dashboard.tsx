@@ -231,8 +231,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 plugins: {
                     legend: { position: 'right' },
                     // Fix: The `raw` property on the chart.js tooltip item can be of an unknown type.
-                    // A type guard ensures it is a number before calling `.toFixed()` to prevent errors.
-                    tooltip: { callbacks: { label: (c: any) => `${c.label}: ${typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00'} L` } },
+                    // A type guard is used to ensure it is a number before calling `.toFixed()` to prevent errors.
+                    tooltip: { callbacks: { label: (c: any) => `${String(c.label ?? '')}: ${typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00'} L` } },
                 },
             },
         });

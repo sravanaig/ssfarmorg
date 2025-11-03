@@ -450,9 +450,8 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
+            // Fix: Type-safely handle file content as a string.
             const text = e.target?.result;
-            // Fix: The 'result' of a FileReader can be an ArrayBuffer or null.
-            // A type guard is added to ensure `text` is a string before calling string methods on it.
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;

@@ -23,8 +23,9 @@ import UserManager from './components/UserManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
 import CalendarView from './components/CalendarView';
 import CustomerDashboard from './components/CustomerDashboard';
+import BillsReceived from './components/BillsReceived';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'bills_received' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
@@ -379,7 +380,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
-    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
+    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'bills_received' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
         setView('dashboard');
     }
   }, [userRole, view]);
@@ -536,6 +537,7 @@ const App: React.FC = () => {
                                     {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
                                     {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
                                     {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
+                                    {view === 'bills_received' && <BillsReceived customers={customers} deliveries={deliveries} payments={payments} />}
                                     {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
                                     {view === 'cms' && websiteContent && <CmsManager content={websiteContent} setContent={setWebsiteContent} />}
                                     {view === 'database' && projectRef && <DatabaseHelper projectRef={projectRef} errorMessage={fetchError || ''} />}
