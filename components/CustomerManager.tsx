@@ -337,14 +337,30 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleDeleteCustomer = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this customer? This action cannot be undone.')) {
+    if (window.confirm('Are you sure you want to delete this customer? This will also delete their login and all associated data. This action cannot be undone.')) {
         try {
-            // Also delete related deliveries and payments
+            const customerToDelete = customers.find(c => c.id === id);
+
+            // First, delete the associated auth user if one exists.
+            if (customerToDelete?.userId) {
+                const { error: userDeleteError } = await supabase.rpc('delete_user_by_id', {
+                    target_user_id: customerToDelete.userId
+                });
+                
+                if (userDeleteError) {
+                    // Throw the error to stop the process if the auth user can't be deleted.
+                    // This prevents creating orphaned customer records later.
+                    throw userDeleteError;
+                }
+            }
+
+            // Proceed with deleting customer and related data
             await supabase.from('deliveries').delete().eq('customerId', id);
             await supabase.from('payments').delete().eq('customerId', id);
             await supabase.from('orders').delete().eq('customerId', id);
             const { error } = await supabase.from('customers').delete().eq('id', id);
             if (error) throw error;
+            
             setCustomers(prev => prev.filter(c => c.id !== id));
         } catch (error: any) {
             alert(getFriendlyErrorMessage(error));

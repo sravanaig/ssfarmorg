@@ -458,9 +458,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_user_id uuid;
+    v_customer_user_id uuid;
     v_phone text;
     v_email text;
+    auth_user_id_with_email uuid;
     new_auth_user_id uuid;
 BEGIN
     -- 1. Ensure the caller is an admin
@@ -468,54 +469,66 @@ BEGIN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
-    -- 2. Get customer's phone and existing userId, ensuring it's 10 digits
+    -- 2. Get customer's phone and existing userId, sanitizing the phone number
     SELECT "userId", right(regexp_replace(phone, '\D', '', 'g'), 10)
-    INTO v_user_id, v_phone
+    INTO v_customer_user_id, v_phone
     FROM public.customers WHERE id = p_customer_id;
 
     IF v_phone IS NULL OR length(v_phone) <> 10 THEN
         RAISE EXCEPTION 'Customer must have a valid 10-digit phone number to set a password.';
     END IF;
 
-    v_email := v_phone || '@ssfarmorganic.local'; -- Create dummy email
+    v_email := v_phone || '@ssfarmorganic.local';
 
     IF p_password IS NULL OR length(p_password) < 6 THEN
         RAISE EXCEPTION 'Password must be at least 6 characters long.';
     END IF;
 
-    IF v_user_id IS NOT NULL THEN
-        -- 3. Auth user already exists, update their details.
+    -- 3. Determine if we are updating an existing user or creating a new one
+    IF v_customer_user_id IS NOT NULL THEN
+        -- Case A: Customer is already linked to an auth user. Update this user.
         PERFORM auth.admin_update_user_by_id(
-            v_user_id,
+            v_customer_user_id,
             jsonb_build_object(
-                'email', v_email,           -- Update email in case phone number changed
-                'password', p_password,     -- Update password
-                'email_confirm', true       -- Ensure email is always confirmed
-            )
-        );
-        RETURN v_user_id;
-    ELSE
-        -- 4. No auth user exists, so create one.
-        -- First, check if another auth user already has this email.
-        IF EXISTS (SELECT 1 FROM auth.users WHERE email = v_email) THEN
-            RAISE EXCEPTION 'An account with this phone number already exists.';
-        END IF;
-
-        -- Create the user with the dummy email and password.
-        SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
-            jsonb_build_object(
-                'email', v_email,
-                'password', p_password,
+                'email', v_email,       -- Update email in case phone number changed
+                'password', p_password, -- Update password
                 'email_confirm', true
             )
         );
+        RETURN v_customer_user_id;
+    ELSE
+        -- Case B: Customer is NOT linked to an auth user.
+        -- Check if an auth user with the target email already exists.
+        SELECT id INTO auth_user_id_with_email FROM auth.users WHERE email = v_email;
 
-        -- Link the new auth user ID back to the customer record
-        UPDATE public.customers
-        SET "userId" = new_auth_user_id
-        WHERE id = p_customer_id;
-        
-        RETURN new_auth_user_id;
+        IF auth_user_id_with_email IS NOT NULL THEN
+            -- An unlinked auth user exists. Take it over: update password and link it.
+            PERFORM auth.admin_update_user_by_id(
+                auth_user_id_with_email,
+                jsonb_build_object('password', p_password)
+            );
+
+            UPDATE public.customers
+            SET "userId" = auth_user_id_with_email
+            WHERE id = p_customer_id;
+            
+            RETURN auth_user_id_with_email;
+        ELSE
+            -- No auth user exists for this phone number. Create a new one.
+            SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
+                jsonb_build_object(
+                    'email', v_email,
+                    'password', p_password,
+                    'email_confirm', true
+                )
+            );
+
+            UPDATE public.customers
+            SET "userId" = new_auth_user_id
+            WHERE id = p_customer_id;
+            
+            RETURN new_auth_user_id;
+        END IF;
     END IF;
 END;
 $$;
