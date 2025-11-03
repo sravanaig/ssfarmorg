@@ -52,29 +52,31 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
       
       <nav className="mt-10 space-y-2">
         {userRole === 'admin' && (
-          <>
-            <NavItem
-              view="dashboard"
-              label="Dashboard"
-              icon={<DashboardIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('dashboard')}
-            />
-            <NavItem
-              view="customers"
-              label="Customers"
-              icon={<UsersIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('customers')}
-            />
-            <NavItem
-              view="logins"
-              label="Logins"
-              icon={<UsersIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('logins')}
-            />
-          </>
+          <NavItem
+            view="dashboard"
+            label="Dashboard"
+            icon={<DashboardIcon className="h-5 w-5" />}
+            activeView={activeView}
+            onClick={() => handleSetView('dashboard')}
+          />
+        )}
+        
+        <NavItem
+          view="customers"
+          label="Customers"
+          icon={<UsersIcon className="h-5 w-5" />}
+          activeView={activeView}
+          onClick={() => handleSetView('customers')}
+        />
+        
+        {userRole === 'admin' && (
+          <NavItem
+            view="logins"
+            label="Logins"
+            icon={<UsersIcon className="h-5 w-5" />}
+            activeView={activeView}
+            onClick={() => handleSetView('logins')}
+          />
         )}
         
         <NavItem
@@ -83,6 +85,14 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
           icon={<ClipboardIcon className="h-5 w-5" />}
           activeView={activeView}
           onClick={() => handleSetView('orders')}
+        />
+        
+        <NavItem
+          view="deliveries"
+          label="Deliveries"
+          icon={<TruckIcon className="h-5 w-5" />}
+          activeView={activeView}
+          onClick={() => handleSetView('deliveries')}
         />
 
         {userRole === 'admin' && (
@@ -95,26 +105,25 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
               onClick={() => handleSetView('delivery_approvals')}
             />
             <NavItem
-              view="deliveries"
-              label="Deliveries"
-              icon={<TruckIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('deliveries')}
-            />
-            <NavItem
               view="calendar"
               label="Calendar"
               icon={<CalendarIcon className="h-5 w-5" />}
               activeView={activeView}
               onClick={() => handleSetView('calendar')}
             />
-            <NavItem
-              view="bills"
-              label="Bills"
-              icon={<BillIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('bills')}
-            />
+          </>
+        )}
+        
+        <NavItem
+          view="bills"
+          label="Bills"
+          icon={<BillIcon className="h-5 w-5" />}
+          activeView={activeView}
+          onClick={() => handleSetView('bills')}
+        />
+
+        {userRole === 'admin' && (
+          <>
             <NavItem
               view="payments"
               label="Payments"

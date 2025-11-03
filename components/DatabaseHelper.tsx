@@ -415,6 +415,10 @@ DROP POLICY IF EXISTS "Admins can manage all payments" ON public.payments;
 CREATE POLICY "Admins can manage all payments" ON public.payments FOR ALL
   USING ( check_user_role('admin') )
   WITH CHECK ( check_user_role('admin') );
+
+DROP POLICY IF EXISTS "Staff can view payments" ON public.payments;
+CREATE POLICY "Staff can view payments" ON public.payments FOR SELECT
+  USING ( check_user_role('staff') );
   
 DROP POLICY IF EXISTS "Customers can view their own payments" ON public.payments;
 CREATE POLICY "Customers can view their own payments" ON public.payments FOR SELECT

@@ -11,7 +11,7 @@ import PaymentManager from './components/PaymentManager';
 import HomePage from './components/HomePage';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
-import { MilkIcon, MenuIcon, LogoutIcon, ClipboardIcon, TruckIcon } from './components/Icons';
+import { MilkIcon, MenuIcon, LogoutIcon } from './components/Icons';
 import ProductsPage from './components/ProductsPage';
 import SharedLayout from './components/SharedLayout';
 import CmsManager from './components/CmsManager';
@@ -110,26 +110,6 @@ const defaultContent: WebsiteContent = {
   }
 };
 
-const StaffNavButton: React.FC<{
-  view: 'orders' | 'deliveries';
-  label: string;
-  icon: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}> = ({ label, icon, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-      active
-        ? 'bg-blue-600 text-white shadow-sm'
-        : 'text-gray-600 hover:bg-gray-200'
-    }`}
-  >
-    {icon}
-    <span className="ml-2">{label}</span>
-  </button>
-);
-
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -137,7 +117,6 @@ const App: React.FC = () => {
   const [userRole, setUserRole] = useState<Profile['role'] | 'customer' | null>(null);
   
   const [view, setView] = useState<View>('dashboard');
-  const [staffSubView, setStaffSubView] = useState<'orders' | 'deliveries'>('orders');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isLegacyCustomerSchema, setIsLegacyCustomerSchema] = useState(false);
 
@@ -284,16 +263,22 @@ const App: React.FC = () => {
             if (role === 'staff') {
                 const [
                     customersData,
+                    deliveriesData,
                     ordersData,
+                    paymentsData,
                     pendingDeliveriesData
                 ] = await Promise.all([
                     fetchCustomersWithLegacyFallback(),
+                    fetchAll<Delivery>('deliveries'),
                     fetchAll<Order>('orders'),
+                    fetchAll<Payment>('payments'),
                     fetchAll<PendingDelivery>('pending_deliveries')
                 ]);
                 
                 setCustomers(customersData || []);
+                setDeliveries(deliveriesData || []);
                 setOrders(ordersData || []);
+                setPayments(paymentsData || []);
                 setPendingDeliveries(pendingDeliveriesData || []);
                 await fetchPublicContent();
                 return;
@@ -393,6 +378,13 @@ const App: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (userRole === 'staff' && view === 'dashboard') {
+        setView('orders');
+    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
+        setView('dashboard');
+    }
+  }, [userRole, view]);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -498,7 +490,6 @@ const App: React.FC = () => {
   };
 
   const handleSetView = (newView: View) => {
-    if (userRole === 'staff') return;
     setView(newView);
     setSidebarOpen(false);
   };
@@ -507,46 +498,8 @@ const App: React.FC = () => {
     if (userRole === 'customer' && customerProfile) {
         return <CustomerDashboard customer={customerProfile} deliveries={deliveries} payments={payments} onLogout={handleLogout} />;
     }
-
-    if (userRole === 'staff') {
-        return (
-            <div className="flex h-screen bg-gray-100 font-sans">
-                <div className="flex-1 flex flex-col overflow-hidden">
-                    <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
-                      <div className="flex items-center space-x-2">
-                        <MilkIcon className="h-8 w-8 text-blue-600"/>
-                        <h1 className="text-2xl font-bold text-gray-800">ssfarmorganic - Staff</h1>
-                      </div>
-                      <button onClick={handleLogout} className="flex items-center px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
-                          <LogoutIcon className="h-5 w-5 md:mr-2" />
-                          <span className="hidden md:block">Logout</span>
-                      </button>
-                    </header>
-                    <nav className="p-2 bg-white border-b">
-                      <div className="flex space-x-2">
-                        <StaffNavButton view="orders" label="Orders" icon={<ClipboardIcon className="h-5 w-5" />} active={staffSubView === 'orders'} onClick={() => setStaffSubView('orders')} />
-                        <StaffNavButton view="deliveries" label="Deliveries" icon={<TruckIcon className="h-5 w-5" />} active={staffSubView === 'deliveries'} onClick={() => setStaffSubView('deliveries')} />
-                      </div>
-                    </nav>
-                    <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                        {staffSubView === 'orders' && (
-                           <OrderManager customers={customers} orders={orders} setOrders={setOrders} />
-                        )}
-                        {staffSubView === 'deliveries' && (
-                            <StaffDeliveryManager
-                                customers={customers}
-                                orders={orders}
-                                pendingDeliveries={pendingDeliveries}
-                                setPendingDeliveries={setPendingDeliveries}
-                            />
-                        )}
-                    </main>
-                </div>
-            </div>
-        );
-    }
     
-    // Admin view
+    // Admin or Staff view
     return (
         <div className="flex h-screen bg-gray-100 font-sans">
             <SideNav activeView={view} setView={handleSetView} isOpen={isSidebarOpen} setOpen={setSidebarOpen} userRole={userRole}/>
@@ -557,7 +510,7 @@ const App: React.FC = () => {
                     </button>
                     <h1 className="text-2xl font-bold text-gray-800 capitalize hidden md:block">{view.replace(/_/g, ' ')}</h1>
                      <div className="flex items-center">
-                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && (
+                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && userRole === 'admin' && (
                             <button onClick={() => setView('database')} className="mr-4 px-3 py-1.5 text-xs bg-red-100 text-red-700 border border-red-200 rounded-md hover:bg-red-200 font-semibold">
                                 DB Error! Fix Now
                             </button>
@@ -570,7 +523,7 @@ const App: React.FC = () => {
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' ? (
+                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && userRole === 'admin' ? (
                       <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
                     ) : fetchError ? (
                       <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
@@ -579,17 +532,27 @@ const App: React.FC = () => {
                       </div>
                     ) : (
                         <>
-                            {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
-                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} />}
-                            {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
+                            {/* Admin-only views */}
+                            {userRole === 'admin' && (
+                                <>
+                                    {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
+                                    {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
+                                    {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                                    {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
+                                    {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
+                                    {view === 'cms' && websiteContent && <CmsManager content={websiteContent} setContent={setWebsiteContent} />}
+                                    {view === 'database' && projectRef && <DatabaseHelper projectRef={projectRef} errorMessage={fetchError || ''} />}
+                                </>
+                            )}
+                            
+                            {/* Shared views */}
+                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} />}
-                            {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
-                            {view === 'deliveries' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
-                            {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
-                            {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} />}
-                            {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
-                            {view === 'cms' && websiteContent && <CmsManager content={websiteContent} setContent={setWebsiteContent} />}
-                            {view === 'database' && projectRef && <DatabaseHelper projectRef={projectRef} errorMessage={fetchError || ''} />}
+                            {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
+
+                            {/* Role-specific delivery view */}
+                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}
                 </main>

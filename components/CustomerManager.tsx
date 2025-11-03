@@ -251,9 +251,10 @@ interface CustomerManagerProps {
   setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
   projectRef: string | null;
   isLegacySchema: boolean;
+  isReadOnly?: boolean;
 }
 
-const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema }) => {
+const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema, isReadOnly = false }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
@@ -521,20 +522,24 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                     />
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 </div>
-                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
-                <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
-                    <UploadIcon className="h-4 w-4 mr-2"/> Import
-                </button>
-                <button onClick={handleExport} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
-                    <DownloadIcon className="h-4 w-4 mr-2"/> Export
-                </button>
-                <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
-                    Template
-                </button>
-                <button onClick={openAddModal} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
-                    <PlusIcon className="h-5 w-5 mr-2"/>
-                    Add Customer
-                </button>
+                {!isReadOnly && (
+                    <>
+                        <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
+                        <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                            <UploadIcon className="h-4 w-4 mr-2"/> Import
+                        </button>
+                        <button onClick={handleExport} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                            <DownloadIcon className="h-4 w-4 mr-2"/> Export
+                        </button>
+                        <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
+                            Template
+                        </button>
+                        <button onClick={openAddModal} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                            <PlusIcon className="h-5 w-5 mr-2"/>
+                            Add Customer
+                        </button>
+                    </>
+                )}
             </div>
         </div>
 
@@ -567,7 +572,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                         <th scope="col" className="px-6 py-3">Name</th>
                                         <th scope="col" className="px-6 py-3">Login Phone</th>
                                         <th scope="col" className="px-6 py-3">Status</th>
-                                        <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                                        {!isReadOnly && <th scope="col" className="px-6 py-3 text-right">Actions</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -585,11 +590,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                                     <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 items-center"><CheckIcon className="h-3 w-3 mr-1" /> Login Active</span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4 text-right space-x-4">
-                                                <button onClick={() => openPasswordModal(customer)} className="text-gray-500 hover:text-blue-600 inline-block align-middle" title="Set/Change Password"><KeyIcon className="w-5 h-5"/></button>
-                                                <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 inline-block align-middle" title="Edit Customer"><EditIcon className="w-5 h-5"/></button>
-                                                <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle" title="Delete Customer"><TrashIcon className="w-5 h-5"/></button>
-                                            </td>
+                                            {!isReadOnly && (
+                                                <td className="px-6 py-4 text-right space-x-4">
+                                                    <button onClick={() => openPasswordModal(customer)} className="text-gray-500 hover:text-blue-600 inline-block align-middle" title="Set/Change Password"><KeyIcon className="w-5 h-5"/></button>
+                                                    <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 inline-block align-middle" title="Edit Customer"><EditIcon className="w-5 h-5"/></button>
+                                                    <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle" title="Delete Customer"><TrashIcon className="w-5 h-5"/></button>
+                                                </td>
+                                            )}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -617,17 +624,19 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-                                        <button onClick={() => openPasswordModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">
-                                            <KeyIcon className="w-4 h-4 mr-1"/> Password
-                                        </button>
-                                        <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">
-                                            <EditIcon className="w-4 h-4 mr-1"/> Edit
-                                        </button>
-                                        <button onClick={() => handleDeleteCustomer(customer.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">
-                                            <TrashIcon className="w-4 h-4 mr-1"/> Delete
-                                        </button>
-                                    </div>
+                                    {!isReadOnly && (
+                                        <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+                                            <button onClick={() => openPasswordModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">
+                                                <KeyIcon className="w-4 h-4 mr-1"/> Password
+                                            </button>
+                                            <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                                <EditIcon className="w-4 h-4 mr-1"/> Edit
+                                            </button>
+                                            <button onClick={() => handleDeleteCustomer(customer.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">
+                                                <TrashIcon className="w-4 h-4 mr-1"/> Delete
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -642,12 +651,14 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 <div className="text-center py-12 px-6">
                     <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
                     <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer or importing from a CSV file.</p>
-                    <div className="mt-4">
-                        <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
-                            <PlusIcon className="h-5 w-5 mr-2"/>
-                            Add Customer
-                        </button>
-                    </div>
+                    {!isReadOnly && (
+                        <div className="mt-4">
+                            <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                                <PlusIcon className="h-5 w-5 mr-2"/>
+                                Add Customer
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

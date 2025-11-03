@@ -9,6 +9,7 @@ interface BillManagerProps {
   deliveries: Delivery[];
   setDeliveries: React.Dispatch<React.SetStateAction<Delivery[]>>;
   payments: Payment[];
+  isReadOnly?: boolean;
 }
 
 const downloadCSV = (csvContent: string, filename: string) => {
@@ -34,7 +35,7 @@ interface BillDetails {
     previousBalance: number;
 }
 
-const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDeliveries, payments }) => {
+const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDeliveries, payments, isReadOnly = false }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | ''>('');
   const [billingMonth, setBillingMonth] = useState<string>(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [searchTerm, setSearchTerm] = useState('');
@@ -680,7 +681,8 @@ Thank you for your business!
                                                 placeholder="0"
                                                 value={getDisplayQuantityForDate(date)}
                                                 onChange={(e) => handleDeliveryInputChange(date, e.target.value)}
-                                                className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-right focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                                                readOnly={isReadOnly}
+                                                className={`w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-right focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${isReadOnly ? 'bg-gray-100' : 'bg-gray-50'}`}
                                             />
                                         </td>
                                     </tr>
@@ -722,9 +724,9 @@ Thank you for your business!
                 <button onClick={() => handleSendWhatsApp(selectedCustomerBillDetails)} className="flex items-center px-6 py-2 bg-green-500 text-white rounded-lg shadow-sm hover:bg-green-600 transition-colors"><WhatsAppIcon className="h-5 w-5 mr-2" />Send via WhatsApp</button>
                 <button onClick={handleShareBill} className="flex items-center px-6 py-2 bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><ShareIcon className="h-5 w-5 mr-2" />Share Bill</button>
                 <button onClick={handlePrint} className="flex items-center px-6 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors"><PrintIcon className="h-5 w-5 mr-2" />Print Bill</button>
-                <button onClick={handleDownloadPdf} className="flex items-center px-6 py-2 bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-5 w-5 mr-2" />Download PDF</button>
+                {!isReadOnly && <button onClick={handleDownloadPdf} className="flex items-center px-6 py-2 bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-5 w-5 mr-2" />Download PDF</button>}
             </div>
-            {pendingDeliveryChanges.size > 0 && (
+            {!isReadOnly && pendingDeliveryChanges.size > 0 && (
                 <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
                         <div className="flex justify-between items-center">
@@ -747,12 +749,14 @@ Thank you for your business!
         <div className="bg-white p-6 rounded-lg shadow-md">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
                 <h3 className="text-xl font-semibold text-gray-800">Monthly Billing Summary</h3>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download Template</button>
-                    <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><UploadIcon className="h-4 w-4 mr-2"/> Import Month's Deliveries</button>
-                    <button onClick={handleExportSummary} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Export Summary (CSV)</button>
-                    <button onClick={handleDownloadAllPdfs} className="flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download All Bills (PDF)</button>
-                </div>
+                {!isReadOnly && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download Template</button>
+                        <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><UploadIcon className="h-4 w-4 mr-2"/> Import Month's Deliveries</button>
+                        <button onClick={handleExportSummary} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Export Summary (CSV)</button>
+                        <button onClick={handleDownloadAllPdfs} className="flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download All Bills (PDF)</button>
+                    </div>
+                )}
             </div>
             {allBillDetails.length > 0 ? (
                 <div>
