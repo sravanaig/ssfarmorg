@@ -3,6 +3,7 @@ import type { Customer, Delivery } from '../types';
 import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
+import QuantityInput from './QuantityInput';
 
 interface DeliveryManagerProps {
   customers: Customer[];
@@ -382,7 +383,13 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                     <p className="text-sm text-gray-500 truncate">{customer.address}</p>
                     <div className="mt-4 flex items-center justify-between">
                       <label htmlFor={`quantity-grid-${customer.id}`} className="text-sm font-medium text-gray-700">Qty (L):</label>
-                      <input id={`quantity-grid-${customer.id}`} type="number" step="0.5" min="0" placeholder={String(customer.defaultQuantity)} value={getDisplayQuantity(customer.id)} onChange={(e) => handleQuantityChange(customer.id, e.target.value)} className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center" />
+                      <QuantityInput
+                        id={`quantity-grid-${customer.id}`}
+                        value={getDisplayQuantity(customer.id)}
+                        onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                        placeholder={String(customer.defaultQuantity)}
+                        inputClassName="w-20"
+                      />
                     </div>
                   </div>
                 ))}
@@ -397,7 +404,12 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                         <th className="px-6 py-4 font-medium text-gray-900">{customer.name}</th>
                         <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
                         <td className="px-6 py-4 text-right">
-                          <input type="number" step="0.5" min="0" placeholder={String(customer.defaultQuantity)} value={getDisplayQuantity(customer.id)} onChange={(e) => handleQuantityChange(customer.id, e.target.value)} className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center" />
+                          <QuantityInput
+                            value={getDisplayQuantity(customer.id)}
+                            onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                            placeholder={String(customer.defaultQuantity)}
+                            inputClassName="w-20"
+                          />
                         </td>
                       </tr>
                     ))}
@@ -420,9 +432,16 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                     const day = new Date(date + 'T00:00:00Z').getUTCDate();
                     const customer = customers.find(c => c.id === selectedMonthlyCustomer);
                     return (
-                        <div key={date} className="p-2 border rounded-md bg-gray-50">
+                        <div key={date} className="p-2 border rounded-md bg-gray-50 flex flex-col">
                             <div className="text-sm font-bold text-gray-800 mb-1">{day}</div>
-                            <input type="number" step="0.5" min="0" value={getMonthlyDisplayQuantity(date)} onChange={e => handleMonthlyQuantityChange(date, e.target.value)} placeholder={customer?.defaultQuantity.toString()} className="w-full border border-gray-300 rounded-md py-1 px-1 text-center text-sm" />
+                            <div className="mt-auto">
+                              <QuantityInput
+                                value={getMonthlyDisplayQuantity(date)}
+                                onChange={(newValue) => handleMonthlyQuantityChange(date, newValue)}
+                                placeholder={customer?.defaultQuantity.toString()}
+                                inputClassName="w-full"
+                              />
+                            </div>
                         </div>
                     );
                 })}

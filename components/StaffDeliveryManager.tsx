@@ -3,6 +3,7 @@ import type { Customer, Order, PendingDelivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon } from './Icons';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
+import QuantityInput from './QuantityInput';
 
 interface StaffDeliveryManagerProps {
   customers: Customer[];
@@ -163,13 +164,10 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <input
-                                                type="number"
-                                                step="0.5"
-                                                min="0"
+                                            <QuantityInput
                                                 value={quantity}
-                                                onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
-                                                className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                                onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                                                inputClassName="w-20"
                                             />
                                         </td>
                                     </tr>

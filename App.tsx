@@ -130,8 +130,6 @@ const App: React.FC = () => {
   const [customerProfile, setCustomerProfile] = useState<Customer | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const formatPhoneNumber = (phone: string) => `+91${phone.replace(/\D/g, '').slice(-10)}`;
-
   const fetchPublicContent = async () => {
     try {
         const { data: contentRows, error: contentError } = await supabase
@@ -469,10 +467,9 @@ const App: React.FC = () => {
     return { success: false, error: 'An unexpected error occurred during login.' };
   };
   
-  const handleCustomerLogin = async (phone: string, pass: string): Promise<{ success: boolean; error?: string }> => {
-    const formattedPhone = formatPhoneNumber(phone);
+  const handleCustomerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const { error } = await supabase.auth.signInWithPassword({
-      phone: formattedPhone,
+      email: email,
       password: pass,
     });
 
@@ -547,7 +544,7 @@ const App: React.FC = () => {
                             
                             {/* Shared views */}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} />}
-                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} />}
+                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}

@@ -3,6 +3,7 @@ import type { Customer, Delivery, Payment } from '../types';
 import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon, UploadIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
+import QuantityInput from './QuantityInput';
 
 interface BillManagerProps {
   customers: Customer[];
@@ -675,14 +676,12 @@ Thank you for your business!
                                     <tr key={date} className="border-t hover:bg-gray-50">
                                         <td className="px-4 py-1 text-gray-700">{new Date(date + 'T00:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short' })}</td>
                                         <td className="px-4 py-1 text-right">
-                                            <input 
-                                                type="text"
-                                                pattern="[0-9]*\.?[0-9]*"
-                                                placeholder="0"
+                                            <QuantityInput
                                                 value={getDisplayQuantityForDate(date)}
-                                                onChange={(e) => handleDeliveryInputChange(date, e.target.value)}
+                                                onChange={(newValue) => handleDeliveryInputChange(date, newValue)}
+                                                placeholder="0"
+                                                inputClassName="w-16"
                                                 readOnly={isReadOnly}
-                                                className={`w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-right focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${isReadOnly ? 'bg-gray-100' : 'bg-gray-50'}`}
                                             />
                                         </td>
                                     </tr>

@@ -15,21 +15,73 @@ interface PaymentManagerProps {
 interface PaymentFormProps {
     onSubmit: (payment: Omit<Payment, 'id' | 'customerId' | 'userId'>) => void;
     onClose: () => void;
-    outstandingBalance: number;
+    customer: Customer;
+    deliveries: Delivery[];
+    payments: Payment[];
 }
 
-const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, outstandingBalance }) => {
+const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, customer, deliveries, payments }) => {
     const [amount, setAmount] = useState(0);
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [billingMonth, setBillingMonth] = useState(new Date().toISOString().substring(0, 7));
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
-    useEffect(() => {
-        if (outstandingBalance > 0) {
-            setAmount(parseFloat(outstandingBalance.toFixed(2)));
-        } else {
-            setAmount(0);
+    const monthlyBillDetails = useMemo(() => {
+        if (!customer || !billingMonth) {
+            return { previousBalance: 0, totalAmountForMonth: 0, totalPaidForMonth: 0, dueForMonth: 0 };
         }
-    }, [outstandingBalance]);
+        
+        const [year, month] = billingMonth.split('-').map(Number);
+        const startDate = new Date(Date.UTC(year, month - 1, 1));
+        const endDate = new Date(Date.UTC(year, month, 0));
+
+        let previousBalance = 0;
+        if (customer.balanceAsOfDate && customer.previousBalance != null) {
+            const openingBalanceDate = new Date(customer.balanceAsOfDate + 'T00:00:00Z');
+            previousBalance = customer.previousBalance;
+
+            const interimDeliveries = deliveries.filter(d => {
+                const deliveryDate = new Date(d.date + 'T00:00:00Z');
+                return d.customerId === customer.id && deliveryDate >= openingBalanceDate && deliveryDate < startDate;
+            });
+            const interimPayments = payments.filter(p => {
+                const paymentDate = new Date(p.date + 'T00:00:00Z');
+                return p.customerId === customer.id && paymentDate >= openingBalanceDate && paymentDate < startDate;
+            });
+
+            const totalInterimDue = interimDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+            const totalInterimPaid = interimPayments.reduce((sum, p) => sum + p.amount, 0);
+            previousBalance += (totalInterimDue - totalInterimPaid);
+        } else {
+            const historicalDeliveries = deliveries.filter(d => d.customerId === customer.id && new Date(d.date + 'T00:00:00Z') < startDate);
+            const historicalPayments = payments.filter(p => p.customerId === customer.id && new Date(p.date + 'T00:00:00Z') < startDate);
+            const totalHistoricalDue = historicalDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+            const totalHistoricalPaid = historicalPayments.reduce((sum, p) => sum + p.amount, 0);
+            previousBalance = totalHistoricalDue - totalHistoricalPaid;
+        }
+
+        const deliveriesForMonth = deliveries.filter(d => {
+            const deliveryDate = new Date(d.date + 'T00:00:00Z');
+            return d.customerId === customer.id && deliveryDate >= startDate && deliveryDate <= endDate;
+        });
+        const paymentsForMonth = payments.filter(p => {
+            const paymentDate = new Date(p.date + 'T00:00:00Z');
+            return p.customerId === customer.id && paymentDate >= startDate && paymentDate <= endDate;
+        });
+
+        const totalAmountForMonth = deliveriesForMonth.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
+        const totalPaidForMonth = paymentsForMonth.reduce((sum, p) => sum + p.amount, 0);
+        
+        const dueForMonth = previousBalance + totalAmountForMonth;
+
+        return { previousBalance, totalAmountForMonth, totalPaidForMonth, dueForMonth };
+    }, [customer, deliveries, payments, billingMonth]);
+
+    useEffect(() => {
+        const outstandingForMonth = monthlyBillDetails.dueForMonth - monthlyBillDetails.totalPaidForMonth;
+        setAmount(outstandingForMonth > 0 ? parseFloat(outstandingForMonth.toFixed(2)) : 0);
+    }, [monthlyBillDetails]);
+
 
     const validate = () => {
         const newErrors: { [key: string]: string } = {};
@@ -52,12 +104,41 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, outstandin
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            {outstandingBalance > 0 && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
-                    <p className="text-sm text-gray-600">Current Outstanding Balance:</p>
-                    <p className="text-xl font-bold text-blue-600">₹{outstandingBalance.toFixed(2)}</p>
-                </div>
-            )}
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Select Billing Month</label>
+                <input 
+                    type="month" 
+                    value={billingMonth} 
+                    onChange={e => setBillingMonth(e.target.value)} 
+                    required 
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                />
+            </div>
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md space-y-1">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Summary for {new Date(billingMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}</h4>
+                <p className="flex justify-between text-sm text-gray-600">
+                    <span>Previous Balance:</span>
+                    <span>₹{monthlyBillDetails.previousBalance.toFixed(2)}</span>
+                </p>
+                <p className="flex justify-between text-sm text-gray-600">
+                    <span>Bill for this month:</span>
+                    <span>+ ₹{monthlyBillDetails.totalAmountForMonth.toFixed(2)}</span>
+                </p>
+                <p className="flex justify-between text-sm text-gray-600 font-medium border-t pt-1 mt-1">
+                    <span>Total Due before payments:</span>
+                    <span>₹{monthlyBillDetails.dueForMonth.toFixed(2)}</span>
+                </p>
+                <p className="flex justify-between text-sm text-green-600">
+                    <span>Paid this month:</span>
+                    <span>- ₹{monthlyBillDetails.totalPaidForMonth.toFixed(2)}</span>
+                </p>
+                <p className="flex justify-between text-base font-bold text-blue-600 border-t pt-1 mt-1">
+                    <span>Outstanding:</span>
+                    <span>₹{(monthlyBillDetails.dueForMonth - monthlyBillDetails.totalPaidForMonth).toFixed(2)}</span>
+                </p>
+            </div>
+
             <div>
                 <label className="block text-sm font-medium text-gray-700">Amount to Pay</label>
                 <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value ? parseFloat(e.target.value) : 0)} required className={`mt-1 block w-full border ${errors.amount ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
@@ -178,11 +259,15 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
         </div>
 
         <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={`Record Payment for ${selectedCustomer?.name}`}>
-            <PaymentForm
-                onSubmit={handleAddPayment}
-                onClose={() => setIsModalOpen(false)}
-                outstandingBalance={selectedCustomer?.balance || 0}
-            />
+            {selectedCustomer && (
+                <PaymentForm
+                    onSubmit={handleAddPayment}
+                    onClose={() => setIsModalOpen(false)}
+                    customer={selectedCustomer}
+                    deliveries={deliveries}
+                    payments={payments}
+                />
+            )}
         </Modal>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">

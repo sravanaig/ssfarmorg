@@ -1,16 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Customer, Order } from '../types';
+import type { Customer, Order, Delivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon, WhatsAppIcon } from './Icons';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
+import QuantityInput from './QuantityInput';
 
 interface OrderManagerProps {
   customers: Customer[];
   orders: Order[];
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
+  deliveries: Delivery[];
+  setDeliveries: React.Dispatch<React.SetStateAction<Delivery[]>>;
 }
 
-const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders }) => {
+const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, number>>(new Map());
@@ -84,27 +87,48 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             quantity,
         }));
 
-        const ordersToUpsert = dataToUpsert.filter(d => d.quantity > 0);
-        const customerIdsToDelete = dataToUpsert
+        // Data for ORDERS table
+        const ordersToUpsert = dataToUpsert.filter(o => o.quantity > 0);
+        const customerIdsToDeleteOrders = dataToUpsert
             .filter(d => d.quantity === 0)
             .map(d => d.customerId)
             .filter(id => ordersForDate.has(id));
 
-        const orderUpsertPromise = ordersToUpsert.length > 0 
+        // Data for DELIVERIES table
+        const deliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
+        const deliveriesForDateMap = new Map(deliveries.filter(d => d.date === selectedDate).map(d => [d.customerId, d.quantity]));
+        const customerIdsToDeleteDeliveries = dataToUpsert
+            .filter(d => d.quantity === 0)
+            .map(d => d.customerId)
+            .filter(id => deliveriesForDateMap.has(id));
+
+        // Create promises for all database operations
+        const orderUpsertPromise = ordersToUpsert.length > 0
             ? supabase.from('orders').upsert(ordersToUpsert, { onConflict: 'customerId,date' }).select()
             : Promise.resolve({ data: [], error: null });
         
-        const orderDeletePromise = customerIdsToDelete.length > 0
-            ? supabase.from('orders').delete().eq('date', selectedDate).in('customerId', customerIdsToDelete)
+        const orderDeletePromise = customerIdsToDeleteOrders.length > 0
+            ? supabase.from('orders').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteOrders)
             : Promise.resolve({ error: null });
 
-        const [orderUpsertResult, orderDeleteResult] = await Promise.all([orderUpsertPromise, orderDeletePromise]);
+        const deliveryUpsertPromise = deliveriesToUpsert.length > 0
+            ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select()
+            : Promise.resolve({ data: [], error: null });
+
+        const deliveryDeletePromise = customerIdsToDeleteDeliveries.length > 0
+            ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteDeliveries)
+            : Promise.resolve({ error: null });
+
+
+        const [orderUpsertResult, orderDeleteResult, deliveryUpsertResult, deliveryDeleteResult] = await Promise.all([orderUpsertPromise, orderDeletePromise, deliveryUpsertPromise, deliveryDeletePromise]);
         
         if (orderUpsertResult.error) throw orderUpsertResult.error;
         if (orderDeleteResult.error) throw orderDeleteResult.error;
+        if (deliveryUpsertResult.error) throw deliveryUpsertResult.error;
+        if (deliveryDeleteResult.error) throw deliveryDeleteResult.error;
 
         setOrders(prev => {
-            const afterDelete = prev.filter(o => !(o.date === selectedDate && customerIdsToDelete.includes(o.customerId)));
+            const afterDelete = prev.filter(o => !(o.date === selectedDate && customerIdsToDeleteOrders.includes(o.customerId)));
             const updatedMap = new Map(afterDelete.map(o => [`${o.customerId}-${o.date}`, o]));
             if (orderUpsertResult.data) {
                 (orderUpsertResult.data as Order[]).forEach(o => updatedMap.set(`${o.customerId}-${o.date}`, o));
@@ -112,8 +136,17 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             return Array.from(updatedMap.values());
         });
 
+        setDeliveries(prev => {
+            const afterDelete = prev.filter(d => !(d.date === selectedDate && customerIdsToDeleteDeliveries.includes(d.customerId)));
+            const updatedMap = new Map(afterDelete.map(d => [`${d.customerId}-${d.date}`, d]));
+            if (deliveryUpsertResult.data) {
+                (deliveryUpsertResult.data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
+            }
+            return Array.from(updatedMap.values());
+        });
+
         setPendingChanges(new Map());
-        alert(`Successfully saved ${changes.length} orders for ${selectedDate}.`);
+        alert(`Successfully saved ${changes.length} orders for ${selectedDate}. Deliveries have been updated accordingly.`);
 
     } catch (error: any) {
         alert(`Error saving orders: ${getFriendlyErrorMessage(error)}`);
@@ -185,7 +218,7 @@ ${orderLines}
 *Total Customers: ${ordersToSend.size}*
     `.trim().replace(/^\s+/gm, '');
 
-    const phoneNumber = '8333977567';
+    const phoneNumber = '+91 8333977567';
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
@@ -243,15 +276,12 @@ ${orderLines}
                                         <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
                                         <td className="px-6 py-4 text-right">
                                             <label htmlFor={`quantity-list-${customer.id}`} className="sr-only">Order Quantity for {customer.name}</label>
-                                            <input
+                                            <QuantityInput
                                                 id={`quantity-list-${customer.id}`}
-                                                type="number"
-                                                step="0.5"
-                                                min="0"
-                                                placeholder={String(customer.defaultQuantity)}
                                                 value={quantity}
-                                                onChange={(e) => handleQuantityChange(customer.id, e.target.value)}
-                                                className="w-24 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-center focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                                onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                                                placeholder={String(customer.defaultQuantity)}
+                                                inputClassName="w-20"
                                             />
                                         </td>
                                     </tr>

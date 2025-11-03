@@ -235,10 +235,11 @@ BEGIN
     -- (FIX) Use the more modern, explicit signature for creating a user.
     -- This avoids ambiguity and is less likely to be removed in future Supabase versions.
     SELECT id INTO new_user_id FROM auth.admin_create_user(
-        p_email,
-        p_password,
-        '{}'::jsonb,
-        true -- set email_confirm to true so the user is immediately active.
+        jsonb_build_object(
+            'email', p_email,
+            'password', p_password,
+            'email_confirm', true
+        )
     );
 
     -- The handle_new_user trigger inserts a 'pending' profile. Update it to be 'approved'.
@@ -459,6 +460,7 @@ AS $$
 DECLARE
     v_user_id uuid;
     v_phone text;
+    v_email text;
     new_auth_user_id uuid;
 BEGIN
     -- 1. Ensure the caller is an admin
@@ -466,50 +468,47 @@ BEGIN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
-    -- 2. Get customer's details from the customers table
-    SELECT "userId", phone INTO v_user_id, v_phone FROM public.customers WHERE id = p_customer_id;
+    -- 2. Get customer's phone and existing userId, ensuring it's 10 digits
+    SELECT "userId", right(regexp_replace(phone, '\D', '', 'g'), 10)
+    INTO v_user_id, v_phone
+    FROM public.customers WHERE id = p_customer_id;
 
-    IF v_phone IS NULL OR v_phone = '' THEN
-        RAISE EXCEPTION 'Customer must have a valid phone number to set a password.';
+    IF v_phone IS NULL OR length(v_phone) <> 10 THEN
+        RAISE EXCEPTION 'Customer must have a valid 10-digit phone number to set a password.';
     END IF;
-    
+
+    v_email := v_phone || '@ssfarmorganic.local'; -- Create dummy email
+
     IF p_password IS NULL OR length(p_password) < 6 THEN
         RAISE EXCEPTION 'Password must be at least 6 characters long.';
     END IF;
 
     IF v_user_id IS NOT NULL THEN
-        -- 3. Auth user already exists, update their password directly.
-        -- (FIX) This is a fallback method that directly updates the encrypted password
-        -- using the 'pgcrypto' extension, which is standard on Supabase. This avoids
-        -- issues with changing Supabase helper function names.
-        UPDATE auth.users
-        SET encrypted_password = crypt(p_password, gen_salt('bf'))
-        WHERE id = v_user_id;
-        
+        -- 3. Auth user already exists, update their details.
+        PERFORM auth.admin_update_user_by_id(
+            v_user_id,
+            jsonb_build_object(
+                'email', v_email,           -- Update email in case phone number changed
+                'password', p_password,     -- Update password
+                'email_confirm', true       -- Ensure email is always confirmed
+            )
+        );
         RETURN v_user_id;
     ELSE
-        -- 4. No auth user exists, so create one
-        -- First, check if another auth user already has this phone number
-        IF EXISTS (SELECT 1 FROM auth.users WHERE phone = v_phone) THEN
-            RAISE EXCEPTION 'An account with this phone number already exists in the authentication system.';
+        -- 4. No auth user exists, so create one.
+        -- First, check if another auth user already has this email.
+        IF EXISTS (SELECT 1 FROM auth.users WHERE email = v_email) THEN
+            RAISE EXCEPTION 'An account with this phone number already exists.';
         END IF;
 
-        -- Create the user with a temporary, non-colliding email
+        -- Create the user with the dummy email and password.
         SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
-            v_phone || '@ssfarmorganic.local', -- using a local, non-routable domain
-            p_password,
-            '{}'::jsonb,
-            false
+            jsonb_build_object(
+                'email', v_email,
+                'password', p_password,
+                'email_confirm', true
+            )
         );
-        
-        -- Immediately update the new user to use phone as the primary identifier
-        -- and clear the temporary email.
-        UPDATE auth.users
-        SET phone = v_phone,
-            phone_confirmed_at = now(),
-            email = null,
-            email_confirmed_at = null
-        WHERE id = new_auth_user_id;
 
         -- Link the new auth user ID back to the customer record
         UPDATE public.customers
@@ -521,6 +520,7 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.admin_set_customer_password(uuid, text) TO authenticated;
+
 
 -- Function to check if a customer exists by phone number.
 -- This is made robust to handle different phone number formats (+91, no prefix, spaces, etc.).

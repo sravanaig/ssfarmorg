@@ -33,11 +33,45 @@ const NavItem: React.FC<{
   </button>
 );
 
+const adminNavItems = [
+    { view: 'dashboard', label: 'Dashboard', icon: <DashboardIcon className="h-5 w-5" /> },
+    { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
+    { view: 'logins', label: 'Logins', icon: <UsersIcon className="h-5 w-5" /> },
+    { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
+    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> },
+    { view: 'delivery_approvals', label: 'Delivery Approvals', icon: <ApprovalIcon className="h-5 w-5" /> },
+    { view: 'calendar', label: 'Calendar', icon: <CalendarIcon className="h-5 w-5" /> },
+    { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
+    { view: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-5 w-5" /> },
+];
+const adminSystemItems = [
+    { view: 'cms' as View, label: 'Website Content', icon: <PencilIcon className="h-5 w-5" /> },
+    { view: 'database' as View, label: 'Database Helper', icon: <DatabaseIcon className="h-5 w-5" /> },
+]
+
+const staffNavItems = [
+    { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
+    { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
+    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> },
+    { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
+];
+
 const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen, userRole }) => {
     const handleSetView = (view: View) => {
         setView(view);
         setOpen(false);
     }
+    
+    let navItemsToShow = [];
+    let systemItemsToShow: { view: View; label: string; icon: React.ReactNode; }[] = [];
+
+    if (userRole === 'admin') {
+        navItemsToShow = adminNavItems;
+        systemItemsToShow = adminSystemItems;
+    } else if (userRole === 'staff') {
+        navItemsToShow = staffNavItems;
+    }
+    
   return (
     <aside className={`absolute inset-y-0 left-0 z-30 w-64 px-4 py-8 bg-white border-r transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center">
@@ -51,103 +85,30 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
         </div>
       
       <nav className="mt-10 space-y-2">
-        {userRole === 'admin' && (
-          <NavItem
-            view="dashboard"
-            label="Dashboard"
-            icon={<DashboardIcon className="h-5 w-5" />}
-            activeView={activeView}
-            onClick={() => handleSetView('dashboard')}
-          />
-        )}
-        
-        <NavItem
-          view="customers"
-          label="Customers"
-          icon={<UsersIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('customers')}
-        />
-        
-        {userRole === 'admin' && (
-          <NavItem
-            view="logins"
-            label="Logins"
-            icon={<UsersIcon className="h-5 w-5" />}
-            activeView={activeView}
-            onClick={() => handleSetView('logins')}
-          />
-        )}
-        
-        <NavItem
-          view="orders"
-          label="Orders"
-          icon={<ClipboardIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('orders')}
-        />
-        
-        <NavItem
-          view="deliveries"
-          label="Deliveries"
-          icon={<TruckIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('deliveries')}
-        />
+        {navItemsToShow.map(item => (
+            <NavItem
+                key={item.view}
+                view={item.view as View}
+                label={item.label}
+                icon={item.icon}
+                activeView={activeView}
+                onClick={() => handleSetView(item.view as View)}
+            />
+        ))}
 
-        {userRole === 'admin' && (
-          <>
-            <NavItem
-              view="delivery_approvals"
-              label="Delivery Approvals"
-              icon={<ApprovalIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('delivery_approvals')}
-            />
-            <NavItem
-              view="calendar"
-              label="Calendar"
-              icon={<CalendarIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('calendar')}
-            />
-          </>
-        )}
-        
-        <NavItem
-          view="bills"
-          label="Bills"
-          icon={<BillIcon className="h-5 w-5" />}
-          activeView={activeView}
-          onClick={() => handleSetView('bills')}
-        />
-
-        {userRole === 'admin' && (
-          <>
-            <NavItem
-              view="payments"
-              label="Payments"
-              icon={<CreditCardIcon className="h-5 w-5" />}
-              activeView={activeView}
-              onClick={() => handleSetView('payments')}
-            />
+        {systemItemsToShow.length > 0 && (
             <div className="pt-4 mt-4 border-t border-gray-200">
-               <NavItem
-                  view="cms"
-                  label="Website Content"
-                  icon={<PencilIcon className="h-5 w-5" />}
-                  activeView={activeView}
-                  onClick={() => handleSetView('cms')}
-                />
-                <NavItem
-                  view="database"
-                  label="Database Helper"
-                  icon={<DatabaseIcon className="h-5 w-5" />}
-                  activeView={activeView}
-                  onClick={() => handleSetView('database')}
-                />
+                {systemItemsToShow.map(item => (
+                    <NavItem
+                        key={item.view}
+                        view={item.view}
+                        label={item.label}
+                        icon={item.icon}
+                        activeView={activeView}
+                        onClick={() => handleSetView(item.view)}
+                    />
+                ))}
             </div>
-          </>
         )}
       </nav>
     </aside>
