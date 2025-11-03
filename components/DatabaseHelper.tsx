@@ -469,7 +469,7 @@ BEGIN
         RAISE EXCEPTION 'User does not have admin privileges';
     END IF;
 
-    -- 2. Get customer's phone and existing userId, sanitizing the phone number
+    -- 2. Get customer's phone and existing userId
     SELECT "userId", right(regexp_replace(phone, '\D', '', 'g'), 10)
     INTO v_customer_user_id, v_phone
     FROM public.customers WHERE id = p_customer_id;
@@ -484,49 +484,45 @@ BEGIN
         RAISE EXCEPTION 'Password must be at least 6 characters long.';
     END IF;
 
-    -- 3. Determine if we are updating an existing user or creating a new one
+    -- 3. Check for a conflicting auth user with the target email
+    SELECT id INTO auth_user_id_with_email FROM auth.users WHERE email = v_email;
+
+    -- 4. Main Logic
     IF v_customer_user_id IS NOT NULL THEN
-        -- Case A: Customer is already linked to an auth user. Update this user.
+        -- CASE A: Customer is already linked to an auth user.
+        -- Goal is to ensure the linked user (v_customer_user_id) has the correct email (v_email).
+        
+        IF auth_user_id_with_email IS NOT NULL AND auth_user_id_with_email <> v_customer_user_id THEN
+            -- CONFLICT: The target email is taken by ANOTHER auth user.
+            -- This other user is an orphan or belongs to a deleted customer. We must delete it
+            -- before we can assign its email to our current linked user.
+            PERFORM auth.admin_delete_user(auth_user_id_with_email);
+        END IF;
+        
+        -- Now it's safe to update the current linked user's details.
         PERFORM auth.admin_update_user_by_id(
             v_customer_user_id,
-            jsonb_build_object(
-                'email', v_email,       -- Update email in case phone number changed
-                'password', p_password, -- Update password
-                'email_confirm', true
-            )
+            jsonb_build_object('email', v_email, 'password', p_password, 'email_confirm', true)
         );
         RETURN v_customer_user_id;
-    ELSE
-        -- Case B: Customer is NOT linked to an auth user.
-        -- Check if an auth user with the target email already exists.
-        SELECT id INTO auth_user_id_with_email FROM auth.users WHERE email = v_email;
 
+    ELSE
+        -- CASE B: Customer is NOT linked to an auth user.
+        
         IF auth_user_id_with_email IS NOT NULL THEN
-            -- An unlinked auth user exists. Take it over: update password and link it.
+            -- An unlinked auth user already exists. We'll take it over.
             PERFORM auth.admin_update_user_by_id(
                 auth_user_id_with_email,
-                jsonb_build_object('password', p_password)
+                jsonb_build_object('password', p_password) -- Just update the password
             );
-
-            UPDATE public.customers
-            SET "userId" = auth_user_id_with_email
-            WHERE id = p_customer_id;
-            
+            UPDATE public.customers SET "userId" = auth_user_id_with_email WHERE id = p_customer_id;
             RETURN auth_user_id_with_email;
         ELSE
-            -- No auth user exists for this phone number. Create a new one.
+            -- No auth user exists for this phone/email. Create a new one.
             SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
-                jsonb_build_object(
-                    'email', v_email,
-                    'password', p_password,
-                    'email_confirm', true
-                )
+                jsonb_build_object('email', v_email, 'password', p_password, 'email_confirm', true)
             );
-
-            UPDATE public.customers
-            SET "userId" = new_auth_user_id
-            WHERE id = p_customer_id;
-            
+            UPDATE public.customers SET "userId" = new_auth_user_id WHERE id = p_customer_id;
             RETURN new_auth_user_id;
         END IF;
     END IF;

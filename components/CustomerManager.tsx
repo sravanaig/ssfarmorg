@@ -242,7 +242,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         });
 
         if (error) {
-            console.error(`Silent error setting default password for customer ${customerId}:`, error);
+            // Throw the error to be caught by the calling function's catch block
+            throw error;
         } else if (resultingUserId && (!newUserId || newUserId !== resultingUserId)) {
              // If a new user ID was created by the function, update local state
              setCustomers(prev => prev.map(c => 
@@ -250,7 +251,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             ));
         }
     } catch (rpcError: any) {
-        console.error(`RPC call failed while setting password for customer ${customerId}:`, getFriendlyErrorMessage(rpcError));
+        const message = getFriendlyErrorMessage(rpcError);
+        console.error(`RPC call failed while setting password for customer ${customerId}:`, message);
+        // Alert the admin so they are aware of the problem immediately. This prevents silent failures.
+        alert(`IMPORTANT: The customer was saved, but their login could not be created/updated.\n\nPlease ensure the phone number is unique and save the customer again.\n\nError: ${message}`);
     }
   };
 
