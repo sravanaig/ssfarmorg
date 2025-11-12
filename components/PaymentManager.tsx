@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import type { Customer, Payment, Delivery } from '../types';
 import Modal from './Modal';
-import { PlusIcon, SearchIcon, TrashIcon } from './Icons';
+import { PlusIcon, SearchIcon, TrashIcon, EditIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -153,12 +153,78 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, customer, 
     );
 };
 
+interface EditPaymentFormProps {
+    onSubmit: (paymentData: { amount: number; date: string }) => void;
+    onClose: () => void;
+    payment: Payment;
+}
+
+const EditPaymentForm: React.FC<EditPaymentFormProps> = ({ onSubmit, onClose, payment }) => {
+    const [amount, setAmount] = useState(payment.amount);
+    const [date, setDate] = useState(payment.date);
+    const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+    const validate = () => {
+        const newErrors: { [key: string]: string } = {};
+        if (amount <= 0) {
+            newErrors.amount = "Amount must be greater than zero.";
+        }
+        if (!date) {
+            newErrors.date = "Date is required.";
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (validate()) {
+            onSubmit({ amount, date });
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Amount</label>
+                <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value ? parseFloat(e.target.value) : 0)}
+                    required
+                    className={`mt-1 block w-full border ${errors.amount ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                />
+                {errors.amount && <p className="mt-1 text-xs text-red-600">{errors.amount}</p>}
+            </div>
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <input
+                    type="date"
+                    value={date}
+                    onChange={e => setDate(e.target.value)}
+                    required
+                    className={`mt-1 block w-full border ${errors.date ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                />
+                {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date}</p>}
+            </div>
+            <div className="flex justify-end pt-4 space-x-2">
+                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Update Payment</button>
+            </div>
+        </form>
+    );
+};
+
 const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, setPayments, deliveries }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [billingMonth, setBillingMonth] = useState<string>(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [viewMode, setViewMode] = useState<'pending' | 'received'>('pending');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [paymentToEdit, setPaymentToEdit] = useState<Payment | null>(null);
 
   const customerMap = useMemo(() => new Map(customers.map(c => [c.id, c])), [customers]);
 
@@ -217,6 +283,30 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
     }
   };
   
+  const handleEditPayment = async (paymentData: { amount: number; date: string }) => {
+    if (!paymentToEdit) return;
+    try {
+        const { data: updatedPayment, error } = await supabase
+            .from('payments')
+            .update({ amount: paymentData.amount, date: paymentData.date })
+            .eq('id', paymentToEdit.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        
+        if (updatedPayment) {
+            setPayments(prev => prev.map(p => p.id === paymentToEdit.id ? (updatedPayment as Payment) : p));
+        }
+        
+        setIsEditModalOpen(false);
+        setPaymentToEdit(null);
+        alert('Payment updated successfully!');
+    } catch(error: any) {
+        alert(getFriendlyErrorMessage(error));
+    }
+  };
+
   const handleDeletePayment = async (paymentId: number, customerName: string, amount: number) => {
     if(window.confirm(`Are you sure you want to delete the payment of ₹${amount.toFixed(2)} for ${customerName}? This action cannot be undone.`)) {
         try {
@@ -233,6 +323,11 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
   const openPaymentModal = (customer: Customer) => {
     setSelectedCustomer(customer);
     setIsModalOpen(true);
+  };
+
+  const openEditModal = (payment: Payment) => {
+    setPaymentToEdit(payment);
+    setIsEditModalOpen(true);
   };
   
   return (
@@ -270,6 +365,16 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
                     deliveries={deliveries}
                     payments={payments}
                     initialMonth={billingMonth}
+                />
+            )}
+        </Modal>
+
+        <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title={`Edit Payment for ${paymentToEdit ? customerMap.get(paymentToEdit.customerId)?.name : ''}`}>
+            {paymentToEdit && (
+                <EditPaymentForm
+                    onSubmit={handleEditPayment}
+                    onClose={() => setIsEditModalOpen(false)}
+                    payment={paymentToEdit}
                 />
             )}
         </Modal>
@@ -335,9 +440,14 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
                                         <td className="px-6 py-4 font-medium text-gray-900">{payment.customerName}</td>
                                         <td className="px-6 py-4 font-semibold text-green-600">₹{payment.amount.toFixed(2)}</td>
                                         <td className="px-6 py-4 text-right">
-                                            <button onClick={() => handleDeletePayment(payment.id, payment.customerName, payment.amount)} className="text-red-500 hover:text-red-700" title="Delete Payment">
-                                                <TrashIcon className="h-5 w-5"/>
-                                            </button>
+                                            <div className="flex justify-end items-center gap-4">
+                                                <button onClick={() => openEditModal(payment)} className="text-blue-600 hover:text-blue-800" title="Edit Payment">
+                                                    <EditIcon className="h-5 w-5"/>
+                                                </button>
+                                                <button onClick={() => handleDeletePayment(payment.id, payment.customerName, payment.amount)} className="text-red-500 hover:text-red-700" title="Delete Payment">
+                                                    <TrashIcon className="h-5 w-5"/>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

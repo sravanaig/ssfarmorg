@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment, Order, PendingDelivery } from '../types';
 import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon, CheckIcon } from './Icons';
@@ -47,353 +48,299 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
     
     const stats = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
-        const currentMonth = today.substring(0, 7); // YYYY-MM
+        const currentMonth = today.substring(0, 7);
+
+        const deliveriesToday = deliveries.filter(d => d.date === today);
+        const deliveriesThisMonth = deliveries.filter(d => d.date.startsWith(currentMonth));
+        const paymentsThisMonth = payments.filter(p => p.date.startsWith(currentMonth));
         
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
-
-        // Today's Deliveries
-        const todaysDeliveries = deliveries.filter(d => d.date === today);
-        const totalQuantityToday = todaysDeliveries.reduce((sum, d) => sum + d.quantity, 0);
-        const customersServedToday = new Set(todaysDeliveries.map(d => d.customerId)).size;
-
-        // Month-to-Date Revenue
-        const monthlyDeliveries = deliveries.filter(d => d.date.startsWith(currentMonth));
-        const mtdRevenue = monthlyDeliveries.reduce((sum, d) => {
-            const customer = customerMap.get(d.customerId);
+        const totalQuantityToday = deliveriesToday.reduce((sum, d) => sum + d.quantity, 0);
+        const totalRevenueToday = deliveriesToday.reduce((sum, d) => {
+            const customer = customers.find(c => c.id === d.customerId);
             return sum + (d.quantity * (customer?.milkPrice || 0));
         }, 0);
         
-        // Month-to-Date Payments
-        const mtdPayments = payments
-            .filter(p => p.date.startsWith(currentMonth))
-            .reduce((sum, p) => sum + p.amount, 0);
-        
-        // Total Outstanding Balance
-        const totalDue = deliveries.reduce((sum, d) => {
-            const customer = customerMap.get(d.customerId);
+        const totalRevenueThisMonth = deliveriesThisMonth.reduce((sum, d) => {
+            const customer = customers.find(c => c.id === d.customerId);
             return sum + (d.quantity * (customer?.milkPrice || 0));
         }, 0);
-        const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-        const totalOutstanding = totalDue - totalPaid;
-        
-        // Customer stats
-        const activeCustomers = customers.filter(c => c.status === 'active').length;
 
-        // Pending Deliveries
-        const pendingDeliveriesCount = pendingDeliveries.length;
+        const totalPaidThisMonth = paymentsThisMonth.reduce((sum, p) => sum + p.amount, 0);
 
         return {
             totalQuantityToday,
-            customersServedToday,
-            mtdRevenue,
-            mtdPayments,
-            totalOutstanding,
-            activeCustomers,
-            pendingDeliveriesCount,
+            totalRevenueToday,
+            totalRevenueThisMonth,
+            totalPaidThisMonth,
+            activeCustomers: customers.filter(c => c.status === 'active').length,
+            pendingApprovals: pendingDeliveries.length,
         };
     }, [customers, deliveries, payments, pendingDeliveries]);
-    
+
     const dailySummary = useMemo(() => {
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
         const deliveriesForDate = deliveries.filter(d => d.date === summaryDate);
-
+        const ordersForDate = orders.filter(o => o.date === summaryDate);
+        
         const totalQuantity = deliveriesForDate.reduce((sum, d) => sum + d.quantity, 0);
-        const customersServed = new Set(deliveriesForDate.map(d => d.customerId)).size;
         const totalRevenue = deliveriesForDate.reduce((sum, d) => {
-            const customer = customerMap.get(d.customerId);
+            const customer = customers.find(c => c.id === d.customerId);
             return sum + (d.quantity * (customer?.milkPrice || 0));
         }, 0);
 
         return {
+            date: summaryDate,
             totalQuantity,
-            customersServed,
             totalRevenue,
-        };
-    }, [customers, deliveries, summaryDate]);
-
-    const monthlySummary = useMemo(() => {
-        if (!summaryMonth) return { totalQuantity: 0, customersServed: 0, totalRevenue: 0 };
-        
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
-        const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
-
-        const totalQuantity = deliveriesForMonth.reduce((sum, d) => sum + d.quantity, 0);
-        const customersServed = new Set(deliveriesForMonth.map(d => d.customerId)).size;
-        const totalRevenue = deliveriesForMonth.reduce((sum, d) => {
-            const customer = customerMap.get(d.customerId);
-            return sum + (d.quantity * (customer?.milkPrice || 0));
-        }, 0);
-
-        return {
-            totalQuantity,
-            customersServed,
-            totalRevenue,
-        };
-    }, [customers, deliveries, summaryMonth]);
-
-    // Bar Chart: Daily Delivered vs. Ordered
+            totalDeliveries: deliveriesForDate.length,
+            totalOrders: ordersForDate.length,
+        }
+    }, [summaryDate, deliveries, orders, customers]);
+    
     useEffect(() => {
-        if (!barChartRef.current || typeof Chart === 'undefined') return;
+        const createBarChart = () => {
+            if (!barChartRef.current) return;
+            const barCtx = barChartRef.current.getContext('2d');
+            if (!barCtx) return;
 
-        const labels: string[] = [];
-        const deliveredData: number[] = [];
-        const orderedData: number[] = [];
-
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateString = d.toISOString().split('T')[0];
+            const [year, month] = summaryMonth.split('-').map(Number);
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const labels = Array.from({ length: daysInMonth }, (_, i) => `${i + 1}`);
             
-            labels.push(d.toLocaleDateString('en-US', { weekday: 'short' }));
+            const deliveriesData = new Array(daysInMonth).fill(0);
+            const revenueData = new Array(daysInMonth).fill(0);
+            
+            deliveries.forEach(d => {
+                if(d.date.startsWith(summaryMonth)) {
+                    const dayIndex = new Date(d.date + 'T00:00:00Z').getUTCDate() - 1;
+                    const customer = customers.find(c => c.id === d.customerId);
+                    deliveriesData[dayIndex] += d.quantity;
+                    revenueData[dayIndex] += d.quantity * (customer?.milkPrice || 0);
+                }
+            });
 
-            const totalDelivered = deliveries.filter(del => del.date === dateString).reduce((sum, del) => sum + del.quantity, 0);
-            deliveredData.push(totalDelivered);
+            if (barChartInstance.current) {
+                barChartInstance.current.destroy();
+            }
 
-            const totalOrdered = orders.filter(ord => ord.date === dateString).reduce((sum, ord) => sum + ord.quantity, 0);
-            orderedData.push(totalOrdered);
-        }
-
-        const ctx = barChartRef.current.getContext('2d');
-        if (!ctx) return;
+            barChartInstance.current = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Revenue (₹)',
+                            data: revenueData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'yRevenue',
+                        },
+                        {
+                            label: 'Total Quantity (L)',
+                            data: deliveriesData,
+                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'yQuantity',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        yRevenue: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Revenue (₹)' }
+                        },
+                        yQuantity: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Quantity (L)' },
+                            grid: { drawOnChartArea: false }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context: any) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        if(context.dataset.yAxisID === 'yRevenue') {
+                                            label += new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(context.parsed.y);
+                                        } else {
+                                            label += `${context.parsed.y.toFixed(2)} L`;
+                                        }
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        legend: { position: 'top' },
+                        title: { display: true, text: `Monthly Summary for ${new Date(summaryMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` }
+                    },
+                },
+            });
+        };
         
-        if (barChartInstance.current) {
-            barChartInstance.current.destroy();
-        }
+        const createPieChart = () => {
+            if (!pieChartRef.current) return;
+            const pieCtx = pieChartRef.current.getContext('2d');
+            if (!pieCtx) return;
 
-        barChartInstance.current = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [
-                    { label: 'Delivered (L)', data: deliveredData, backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', borderWidth: 1 },
-                    { label: 'Ordered (L)', data: orderedData, backgroundColor: 'rgba(255, 159, 64, 0.6)', borderColor: 'rgba(255, 159, 64, 1)', borderWidth: 1 },
-                ],
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true, title: { display: true, text: 'Quantity (Liters)' } } },
-                plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
-            },
-        });
+            const deliveriesThisMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
+            const quantityPerCustomer = new Map<string, number>();
+
+            deliveriesThisMonth.forEach(d => {
+                const customerName = customers.find(c => c.id === d.customerId)?.name || 'Unknown';
+                quantityPerCustomer.set(customerName, (quantityPerCustomer.get(customerName) || 0) + d.quantity);
+            });
+
+            const sortedCustomers = Array.from(quantityPerCustomer.entries()).sort((a,b) => b[1] - a[1]).slice(0, 10);
+            
+            const chartData = {
+                labels: sortedCustomers.map(c => c[0]),
+                data: sortedCustomers.map(c => c[1])
+            };
+
+            if (pieChartInstance.current) {
+                pieChartInstance.current.destroy();
+            }
+
+            pieChartInstance.current = new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Total Quantity',
+                        data: chartData.data,
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.7)', 'rgba(54, 162, 235, 0.7)',
+                            'rgba(255, 206, 86, 0.7)', 'rgba(75, 192, 192, 0.7)',
+                            'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)',
+                            'rgba(255, 99, 132, 0.5)', 'rgba(54, 162, 235, 0.5)',
+                            'rgba(255, 206, 86, 0.5)', 'rgba(75, 192, 192, 0.5)'
+                        ],
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(c: any) {
+                                    const label = c.label || '';
+                                    const rawValue = c.raw;
+                                    if (typeof rawValue === 'number') {
+                                        return `${label}: ${rawValue.toFixed(2)} L`;
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        legend: { position: 'right' },
+                        title: { display: true, text: 'Top 10 Customers by Quantity (This Month)' }
+                    }
+                }
+            });
+        }
+        
+        createBarChart();
+        createPieChart();
 
         return () => {
             if (barChartInstance.current) {
                 barChartInstance.current.destroy();
             }
-        };
-    }, [deliveries, orders]);
-
-    // Pie Chart: Customer Distribution
-    useEffect(() => {
-        if (!pieChartRef.current || typeof Chart === 'undefined') return;
-
-        const customerMap = new Map(customers.map(c => [c.id, c.name]));
-        const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
-        
-        const quantityByCustomer = new Map<string, number>();
-        deliveriesForMonth.forEach(delivery => {
-            const name = customerMap.get(delivery.customerId) || 'Unknown';
-            quantityByCustomer.set(name, (quantityByCustomer.get(name) || 0) + delivery.quantity);
-        });
-
-        const sortedCustomers = Array.from(quantityByCustomer.entries()).sort((a, b) => b[1] - a[1]);
-        const topCustomers = sortedCustomers.slice(0, 7);
-        const otherCustomers = sortedCustomers.slice(7);
-
-        const labels = topCustomers.map(c => c[0]);
-        const data = topCustomers.map(c => c[1]);
-        
-        if (otherCustomers.length > 0) {
-            labels.push('Others');
-            data.push(otherCustomers.reduce((sum, c) => sum + c[1], 0));
-        }
-
-        const ctx = pieChartRef.current.getContext('2d');
-        if (!ctx) return;
-        
-        if (pieChartInstance.current) {
-            pieChartInstance.current.destroy();
-        }
-
-        pieChartInstance.current = new Chart(ctx, {
-            type: 'pie',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'Quantity (L)',
-                    data,
-                    backgroundColor: ['#4A90E2', '#50E3C2', '#F5A623', '#F8E71C', '#BD10E0', '#9013FE', '#417505', '#7ED321'],
-                    hoverOffset: 4,
-                }],
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'right' },
-                    // Fix: The `raw` property on the chart.js tooltip item can be of an unknown type.
-                    // A type guard is used to ensure it is a number before calling `.toFixed()` to prevent errors.
-                    tooltip: { callbacks: { label: (c: any) => `${String(c.label ?? '')}: ${typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00'} L` } },
-                },
-            },
-        });
-        
-        return () => {
             if (pieChartInstance.current) {
                 pieChartInstance.current.destroy();
             }
         };
-    }, [customers, deliveries, summaryMonth]);
 
+    }, [summaryMonth, deliveries, payments, customers]);
 
     return (
-        <div>
-            <h2 className="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <StatCard
-                    title="Today's Deliveries"
-                    value={`${stats.totalQuantityToday.toFixed(2)} L`}
-                    subtitle={`${stats.customersServedToday} customers`}
-                    icon={<TruckIcon className="h-6 w-6 text-white"/>}
-                    color="bg-blue-500"
-                />
-                <StatCard
-                    title="Month-to-Date Revenue"
-                    value={`₹${stats.mtdRevenue.toFixed(2)}`}
-                    icon={<BillIcon className="h-6 w-6 text-white"/>}
-                    color="bg-green-500"
-                />
-                 <StatCard
-                    title="Payments Received (Month)"
-                    value={`₹${stats.mtdPayments.toFixed(2)}`}
-                    icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
-                    color="bg-emerald-500"
-                />
-                <StatCard
-                    title="Total Outstanding Balance"
-                    value={`₹${stats.totalOutstanding.toFixed(2)}`}
-                    icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
-                    color="bg-red-500"
-                />
-                <StatCard
-                    title="Pending Deliveries"
-                    value={`${stats.pendingDeliveriesCount}`}
-                    subtitle="Awaiting admin approval"
-                    icon={<CheckIcon className="h-6 w-6 text-white"/>}
-                    color="bg-yellow-500"
-                />
-                <StatCard
+        <div className="space-y-8">
+            <div>
+                <h2 className="text-3xl font-bold text-gray-800">Dashboard</h2>
+                <p className="text-gray-500">Overview of your business performance.</p>
+            </div>
+
+            {/* General Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                 <StatCard 
                     title="Active Customers"
-                    value={`${stats.activeCustomers}`}
-                    icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                    color="bg-teal-500"
+                    value={stats.activeCustomers.toString()}
+                    icon={<UsersIcon className="h-6 w-6 text-blue-600"/>}
+                    color="bg-blue-100"
+                />
+                 <StatCard 
+                    title="Pending Approvals"
+                    value={stats.pendingApprovals.toString()}
+                    subtitle="Deliveries need review"
+                    icon={<CheckIcon className="h-6 w-6 text-yellow-600"/>}
+                    color="bg-yellow-100"
+                />
+                <StatCard 
+                    title="Today's Revenue"
+                    value={`₹${stats.totalRevenueToday.toFixed(2)}`}
+                    subtitle={`${stats.totalQuantityToday.toFixed(2)} L delivered`}
+                    icon={<BillIcon className="h-6 w-6 text-green-600"/>}
+                    color="bg-green-100"
+                />
+                 <StatCard 
+                    title="Revenue (This Month)"
+                    value={`₹${stats.totalRevenueThisMonth.toFixed(2)}`}
+                    icon={<BillIcon className="h-6 w-6 text-purple-600"/>}
+                    color="bg-purple-100"
+                />
+                <StatCard 
+                    title="Payments (This Month)"
+                    value={`₹${stats.totalPaidThisMonth.toFixed(2)}`}
+                    icon={<CreditCardIcon className="h-6 w-6 text-indigo-600"/>}
+                    color="bg-indigo-100"
                 />
             </div>
-            
-            <div className="mt-8 pt-6 border-t border-gray-200">
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">Delivery Analytics</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-lg shadow-md">
-                        <h4 className="text-lg font-semibold text-gray-700 mb-4">Past 7 Days: Delivered vs. Ordered</h4>
-                        <div className="relative h-80">
-                            <canvas ref={barChartRef}></canvas>
-                        </div>
-                    </div>
-                    <div className="bg-white p-6 rounded-lg shadow-md">
-                        <h4 className="text-lg font-semibold text-gray-700 mb-4">
-                            Customer Distribution for {new Date(summaryMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}
-                        </h4>
-                        <div className="relative h-80">
-                             {deliveries.filter(d => d.date.startsWith(summaryMonth)).length > 0 ? (
-                                <canvas ref={pieChartRef}></canvas>
-                             ) : (
-                                <div className="flex items-center justify-center h-full text-gray-500">
-                                    No delivery data for this month.
-                                </div>
-                             )}
-                        </div>
-                    </div>
+
+            {/* Daily Summary */}
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-semibold text-gray-800">Daily Summary</h3>
+                    <input type="date" value={summaryDate} onChange={e => setSummaryDate(e.target.value)} className="border border-gray-300 rounded-md shadow-sm p-2" />
                 </div>
-            </div>
-            
-             <div className="mt-8 pt-6 border-t border-gray-200">
-                <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
-                    <h3 className="text-2xl font-bold text-gray-800">Daily Summary</h3>
-                    <div className="flex items-center gap-2">
-                         <label htmlFor="summary-date" className="text-sm font-medium text-gray-700">Select Date:</label>
-                        <input
-                            id="summary-date"
-                            type="date"
-                            value={summaryDate}
-                            onChange={(e) => setSummaryDate(e.target.value)}
-                            className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <StatCard
-                        title="Total Milk Delivered"
-                        value={`${dailySummary.totalQuantity.toFixed(2)} L`}
-                        icon={<TruckIcon className="h-6 w-6 text-white"/>}
-                        color="bg-purple-500"
-                    />
-                    <StatCard
-                        title="Revenue for Day"
-                        value={`₹${dailySummary.totalRevenue.toFixed(2)}`}
-                        icon={<BillIcon className="h-6 w-6 text-white"/>}
-                        color="bg-yellow-600"
-                    />
-                    <StatCard
-                        title="Customers Served"
-                        value={`${dailySummary.customersServed}`}
-                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                        color="bg-teal-500"
-                    />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div><p className="text-sm text-gray-500">Total Deliveries</p><p className="text-2xl font-bold">{dailySummary.totalDeliveries}</p></div>
+                    <div><p className="text-sm text-gray-500">Total Orders</p><p className="text-2xl font-bold">{dailySummary.totalOrders}</p></div>
+                    <div><p className="text-sm text-gray-500">Total Quantity</p><p className="text-2xl font-bold">{dailySummary.totalQuantity.toFixed(2)} L</p></div>
+                    <div><p className="text-sm text-gray-500">Total Revenue</p><p className="text-2xl font-bold text-green-600">₹{dailySummary.totalRevenue.toFixed(2)}</p></div>
                 </div>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-gray-200">
-                <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
-                    <h3 className="text-2xl font-bold text-gray-800">Monthly Summary</h3>
-                    <div className="flex items-center gap-2">
-                         <label htmlFor="summary-month" className="text-sm font-medium text-gray-700">Select Month:</label>
-                        <input
-                            id="summary-month"
-                            type="month"
-                            value={summaryMonth}
-                            onChange={(e) => setSummaryMonth(e.target.value)}
-                            className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+                <div className="xl:col-span-3 bg-white p-6 rounded-lg shadow-md">
+                    <div className="flex justify-between items-center mb-4">
+                         <h3 className="text-xl font-semibold text-gray-800">Monthly Performance</h3>
+                        <input type="month" value={summaryMonth} onChange={e => setSummaryMonth(e.target.value)} className="border border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+                    <div className="h-96">
+                        <canvas ref={barChartRef}></canvas>
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <StatCard
-                        title="Total Milk Delivered"
-                        value={`${monthlySummary.totalQuantity.toFixed(2)} L`}
-                        icon={<TruckIcon className="h-6 w-6 text-white"/>}
-                        color="bg-indigo-500"
-                    />
-                    <StatCard
-                        title="Revenue for Month"
-                        value={`₹${monthlySummary.totalRevenue.toFixed(2)}`}
-                        icon={<BillIcon className="h-6 w-6 text-white"/>}
-                        color="bg-pink-500"
-                    />
-                    <StatCard
-                        title="Customers Served"
-                        value={`${monthlySummary.customersServed}`}
-                        icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                        color="bg-orange-500"
-                    />
+                <div className="xl:col-span-2 bg-white p-6 rounded-lg shadow-md">
+                     <h3 className="text-xl font-semibold text-gray-800 mb-4">Top Customers</h3>
+                     <div className="h-96">
+                        <canvas ref={pieChartRef}></canvas>
+                    </div>
                 </div>
             </div>
-
-             {customers.length === 0 && deliveries.length === 0 && (
-                 <div className="mt-8 text-center py-12 px-6 bg-white rounded-lg shadow-md">
-                    <h3 className="text-xl font-medium text-gray-700">Welcome to ssfarmorganic!</h3>
-                    <p className="mt-2 text-md text-gray-500">Your dashboard is ready. Add some customers and record deliveries to see your stats here.</p>
-                </div>
-            )}
         </div>
     );
 };

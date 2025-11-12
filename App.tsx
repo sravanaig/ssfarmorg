@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -550,7 +549,7 @@ const App: React.FC = () => {
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}
-                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} orders={orders} />}
                             {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}
@@ -564,7 +563,7 @@ const App: React.FC = () => {
     <>
         {isLoading ? (
             <div className="flex items-center justify-center min-h-screen">
-                <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-12 w-12 animate-pulse" />
+                <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-32 w-32 animate-pulse" />
             </div>
         ) : isAuthenticated ? (
             renderDashboard()
@@ -579,7 +578,7 @@ const App: React.FC = () => {
                 ) : (
                     // Fallback for when content is still loading
                      <div className="flex items-center justify-center min-h-screen">
-                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-12 w-12 animate-pulse" />
+                        <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-32 w-32 animate-pulse" />
                     </div>
                 )}
             </SharedLayout>

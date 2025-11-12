@@ -100,7 +100,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     <div>
                     <h4 className="font-semibold text-lg mb-4">Contact</h4>
                     <ul className="space-y-2 text-gray-400">
-                        <li><a href="#" className="hover:text-white">Medipally, Hyderabad</a></li>
+                        <li><a href="#" className="hover:text-white">ssfarmorganic, Medipally, Hyderabad</a></li>
                         <li><a href="tel:7382601453" className="hover:text-white">7382601453</a></li>
                         <li><a href="mailto:ssfarmorg@gmail.com" className="hover:text-white">ssfarmorg@gmail.com</a></li>
                     </ul>

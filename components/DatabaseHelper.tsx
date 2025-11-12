@@ -509,11 +509,16 @@ BEGIN
             PERFORM auth.admin_delete_user(auth_user_id_with_email);
         END IF;
         
-        -- Now it's safe to update the current linked user's details.
-        PERFORM auth.admin_update_user_by_id(
-            v_customer_user_id,
-            jsonb_build_object('email', v_email, 'password', p_password, 'email_confirm', true)
-        );
+        -- (FIX) Replaced potentially missing 'auth.admin_update_user_by_id' with a direct update statement.
+        -- This provides better compatibility with various Supabase project versions.
+        UPDATE auth.users
+        SET
+            email = v_email,
+            password = crypt(p_password, gen_salt('bf')),
+            email_confirmed_at = now(),
+            updated_at = now()
+        WHERE id = v_customer_user_id;
+
         RETURN v_customer_user_id;
 
     ELSE
@@ -521,10 +526,13 @@ BEGIN
         
         IF auth_user_id_with_email IS NOT NULL THEN
             -- An unlinked auth user already exists. We'll take it over.
-            PERFORM auth.admin_update_user_by_id(
-                auth_user_id_with_email,
-                jsonb_build_object('password', p_password) -- Just update the password
-            );
+            -- (FIX) Replaced potentially missing 'auth.admin_update_user_by_id' with a direct update statement.
+            UPDATE auth.users
+            SET
+                password = crypt(p_password, gen_salt('bf')),
+                updated_at = now()
+            WHERE id = auth_user_id_with_email;
+            
             UPDATE public.customers SET "userId" = auth_user_id_with_email WHERE id = p_customer_id;
             RETURN auth_user_id_with_email;
         ELSE
