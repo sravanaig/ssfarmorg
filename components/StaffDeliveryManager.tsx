@@ -62,8 +62,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
   
   const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
-        const value = pendingChanges.get(customerId);
-        return value === 0 ? '' : value!;
+        return pendingChanges.get(customerId)!;
     }
     if (pendingDeliveriesForDate.has(customerId)) {
         return pendingDeliveriesForDate.get(customerId)!;
@@ -71,8 +70,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
     if (ordersForDate.has(customerId)) {
         return ordersForDate.get(customerId)!;
     }
-    const customer = customers.find(c => c.id === customerId);
-    return customer ? customer.defaultQuantity : 0;
+    return 0;
   }
   
   const handleSave = async () => {
@@ -167,6 +165,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
                                             <QuantityInput
                                                 value={quantity}
                                                 onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                                                placeholder={String(customer.defaultQuantity)}
                                                 inputClassName="w-20"
                                             />
                                         </td>

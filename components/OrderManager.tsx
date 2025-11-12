@@ -72,15 +72,10 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
   
   const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
-        const value = pendingChanges.get(customerId);
-        return value === 0 ? '' : value!;
+        return pendingChanges.get(customerId)!;
     }
-
     const orderQty = ordersForDate.get(customerId);
-    if(orderQty !== undefined) return orderQty;
-
-    const customer = customers.find(c => c.id === customerId);
-    return customer ? customer.defaultQuantity : 0;
+    return orderQty !== undefined ? orderQty : 0;
   }
   
   const handleSave = async () => {

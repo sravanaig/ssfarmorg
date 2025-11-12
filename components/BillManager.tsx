@@ -450,8 +450,8 @@ Thank you for your business!
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // Fix for line 491: Type 'unknown' is not assignable to type 'string'.
-            // The result of FileReader can be string, ArrayBuffer or null. Added a type guard to ensure it's a string.
+            // FIX: The `result` of a FileReader can be a string, ArrayBuffer, or null.
+            // A type guard is necessary to ensure we have a string before using string methods.
             const text = e.target?.result;
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');

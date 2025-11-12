@@ -230,10 +230,13 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 responsive: true, maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'right' },
-                    // Fix for line 196: Argument of type 'unknown' is not assignable to parameter of type 'string'.
-                    // The `raw` property on the chart.js tooltip item can be of an unknown type.
+                    // FIX: The `raw` property on the chart.js tooltip item can be of type `unknown`.
                     // A type guard is used to ensure it is a number before calling `.toFixed()` to prevent errors.
-                    tooltip: { callbacks: { label: (c: any) => `${String(c.label ?? '')}: ${typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00'} L` } },
+                    tooltip: { callbacks: { label: (c: any) => {
+                        const value = typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00';
+                        const label = c.label || '';
+                        return `${label}: ${value} L`;
+                    } } },
                 },
             },
         });
