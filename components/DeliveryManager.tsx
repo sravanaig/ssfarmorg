@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import type { Customer, Delivery, Order } from '../types';
+import type { Customer, Delivery } from '../types';
 import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
@@ -10,7 +9,6 @@ interface DeliveryManagerProps {
   customers: Customer[];
   deliveries: Delivery[];
   setDeliveries: React.Dispatch<React.SetStateAction<Delivery[]>>;
-  orders: Order[];
 }
 
 const downloadCSV = (csvContent: string, filename: string) => {
@@ -25,7 +23,7 @@ const downloadCSV = (csvContent: string, filename: string) => {
     document.body.removeChild(link);
 };
 
-const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries, orders }) => {
+const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries }) => {
   // Common state
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -74,16 +72,6 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     return deliveryMap;
   }, [deliveries, selectedDate]);
 
-  const ordersForDate = useMemo(() => {
-    const orderMap = new Map<string, number>();
-    orders.forEach(o => {
-        if (o.date === selectedDate) {
-            orderMap.set(o.customerId, o.quantity);
-        }
-    });
-    return orderMap;
-  }, [orders, selectedDate]);
-
   const handleQuantityChange = (customerId: string, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
     if (newQuantityStr === '') {
@@ -97,44 +85,56 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
         const value = pendingChanges.get(customerId);
-        return value!;
+        return value === 0 ? '' : value!;
     }
     const deliveryQty = deliveriesForDate.get(customerId);
     if(deliveryQty !== undefined) return deliveryQty;
-
-    const orderQty = ordersForDate.get(customerId);
-    if(orderQty !== undefined) return orderQty;
-    
     const customer = customers.find(c => c.id === customerId);
     return customer ? customer.defaultQuantity : 0;
   }
   
   const handleSave = async () => {
-    if (pendingChanges.size === 0) {
+    setIsSaving(true);
+    const changesToProcess = new Map<string, number>();
+    filteredActiveCustomers.forEach(customer => {
+        const displayQuantity = getDisplayQuantity(customer.id);
+        const finalQuantity = (typeof displayQuantity === 'string' && displayQuantity === '') ? 0 : Number(displayQuantity);
+        const existingDelivery = deliveries.find(d => d.customerId === customer.id && d.date === selectedDate);
+        const existingQuantity = existingDelivery?.quantity;
+
+        if (finalQuantity !== existingQuantity) {
+             if (existingDelivery === undefined && finalQuantity === 0) {
+                 return;
+             }
+             changesToProcess.set(customer.id, finalQuantity);
+        }
+    });
+
+    if (changesToProcess.size === 0) {
         alert("No changes to save.");
+        setIsSaving(false);
         return;
     }
-    setIsSaving(true);
-    
     try {
-        const changes = Array.from(pendingChanges.entries());
-        const deliveriesToUpsert = changes.map(([customerId, quantity]) => ({
-            customerId,
-            date: selectedDate,
-            quantity,
-        }));
+        const changes = Array.from(changesToProcess.entries());
+        const deliveriesToUpsert = changes.filter(([, quantity]) => quantity > 0).map(([customerId, quantity]) => ({ customerId, date: selectedDate, quantity }));
+        const customerIdsToDelete = changes.filter(([, quantity]) => quantity === 0).map(([customerId]) => customerId).filter(id => deliveriesForDate.has(id));
 
-        const { data, error } = await supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select();
+        const upsertPromise = deliveriesToUpsert.length > 0 ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select() : Promise.resolve({ data: [], error: null });
+        const deletePromise = customerIdsToDelete.length > 0 ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDelete) : Promise.resolve({ error: null });
+        const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
 
-        if (error) throw error;
+        if (upsertResult.error) throw upsertResult.error;
+        if (deleteResult.error) throw deleteResult.error;
         
         setDeliveries(prev => {
-            const updatedDeliveriesMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
-            if (data) { (data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
+            const deliveriesAfterDeletion = prev.filter(d => !(d.date === selectedDate && customerIdsToDelete.includes(d.customerId)));
+            const updatedDeliveriesMap = new Map(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
             return Array.from(updatedDeliveriesMap.values());
         });
         setPendingChanges(new Map());
-        alert(`Successfully saved ${changes.length} changes for ${selectedDate}.`);
+        alert(`Successfully saved ${changesToProcess.size} changes for ${selectedDate}.`);
     } catch (error: any) {
         alert(`Error saving deliveries: ${getFriendlyErrorMessage(error)}`);
     } finally {
@@ -191,7 +191,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   };
   
   const handleMonthlyQuantityChange = (date: string, newQuantityStr: string) => {
-    if (!/^[0-9]*\.?([0-9]+)?$/.test(newQuantityStr)) return;
+    if (!/^[0-9]*\.?[0-9]*$/.test(newQuantityStr)) return;
     const newQuantity = newQuantityStr === '' ? 0 : parseFloat(newQuantityStr);
     if (isNaN(newQuantity) || newQuantity < 0) return;
     setMonthlyPendingChanges(prev => new Map(prev).set(date, newQuantity));
@@ -226,15 +226,20 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     setIsSaving(true);
     try {
         const changes = Array.from(monthlyPendingChanges.entries());
-        const deliveriesToUpsert = changes.map(([date, quantity]) => ({ customerId: selectedMonthlyCustomer, date, quantity }));
-        
-        const { data, error } = await supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select();
+        const deliveriesToUpsert = changes.filter(([, quantity]) => quantity > 0).map(([date, quantity]) => ({ customerId: selectedMonthlyCustomer, date, quantity }));
+        const datesToDelete = changes.filter(([, quantity]) => quantity === 0).map(([date]) => date).filter(date => customerDeliveriesForMonth.has(date));
 
-        if (error) throw error;
+        const upsertPromise = deliveriesToUpsert.length > 0 ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select() : Promise.resolve({ data: [], error: null });
+        const deletePromise = datesToDelete.length > 0 ? supabase.from('deliveries').delete().eq('customerId', selectedMonthlyCustomer).in('date', datesToDelete) : Promise.resolve({ error: null });
+        const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
+
+        if (upsertResult.error) throw upsertResult.error;
+        if (deleteResult.error) throw deleteResult.error;
         
         setDeliveries(prev => {
-            const updatedDeliveriesMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
-            if (data) { (data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
+            const deliveriesAfterDeletion = prev.filter(d => !(d.customerId === selectedMonthlyCustomer && datesToDelete.includes(d.date)));
+            const updatedDeliveriesMap = new Map(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
             return Array.from(updatedDeliveriesMap.values());
         });
         setMonthlyPendingChanges(new Map());
@@ -267,13 +272,14 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // Fix: The result of FileReader can be a string or an ArrayBuffer. We must check its type before using string methods.
-            const result = e.target?.result;
-            if (typeof result !== 'string') {
+            // Fix for line 296: Type 'unknown' is not assignable to type 'string'.
+            // The result of FileReader can be string, ArrayBuffer or null. Added a type guard to ensure it's a string.
+            const text = e.target?.result;
+            if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
             }
-            const rows = result.split('\n').filter(row => row.trim() !== '');
+            const rows = text.split('\n').filter(row => row.trim() !== '');
             if (rows.length < 2) { alert("CSV file is empty or contains only a header."); return; }
             const header = rows[0].split(',').map(h => h.trim());
             const requiredHeaders = ['customerName', 'date', 'quantity'];

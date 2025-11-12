@@ -3,48 +3,47 @@ import React from 'react';
 interface QuantityInputProps {
   value: number | string;
   onChange: (newValue: string) => void;
-  presets?: { val: string; display: string }[];
+  step?: number;
   placeholder?: string;
   id?: string;
   inputClassName?: string;
   readOnly?: boolean;
 }
 
-const defaultPresets = [
-  { val: '0', display: '0' },
-  { val: '0.5', display: '½' },
-  { val: '1', display: '1' },
-];
+const QuantityInput: React.FC<QuantityInputProps> = ({ value, onChange, step = 0.5, placeholder, id, inputClassName = 'w-16', readOnly = false }) => {
+  const handleIncrement = () => {
+    if (readOnly) return;
+    const currentValue = parseFloat(String(value)) || 0;
+    const newValue = currentValue + step;
+    onChange(String(newValue));
+  };
 
-const QuantityInput: React.FC<QuantityInputProps> = ({ value, onChange, presets = defaultPresets, placeholder, id, inputClassName = 'w-16', readOnly = false }) => {
+  const handleDecrement = () => {
+    if (readOnly) return;
+    const currentValue = parseFloat(String(value)) || 0;
+    const newValue = Math.max(0, currentValue - step);
+    onChange(String(newValue));
+  };
+  
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (readOnly) return;
     const newValue = e.target.value;
-    // Allow empty string, numbers, and a single decimal point
     if (newValue === '' || /^[0-9]*\.?[0-9]*$/.test(newValue)) {
       onChange(newValue);
     }
   };
 
-  const PresetButton: React.FC<{ val: string; display: string; isLast: boolean }> = ({ val, display, isLast }) => (
-    <button
-      type="button"
-      onClick={() => !readOnly && onChange(val)}
-      disabled={readOnly}
-      className={`px-3 h-8 text-sm font-semibold border border-gray-300 ${isLast ? 'rounded-r-md' : ''} ${
-        // Highlight if the value matches, treating empty string as '0' for the button highlight
-        (value === '' && val === '0') || String(value) === val
-          ? 'bg-blue-600 text-white border-blue-600 z-10'
-          : 'bg-gray-50 hover:bg-gray-100'
-      } focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed`}
-      aria-label={`Set quantity to ${val}`}
-    >
-      {display}
-    </button>
-  );
-
   return (
-    <div className="inline-flex items-center -space-x-px">
+    <div className="inline-flex items-center">
+      <button
+        type="button"
+        onClick={handleDecrement}
+        disabled={readOnly}
+        className="px-3 h-8 text-lg font-semibold border border-gray-300 rounded-l-md bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+        aria-label="Decrement quantity"
+      >
+        -
+      </button>
       <input
         id={id}
         type="text"
@@ -53,13 +52,17 @@ const QuantityInput: React.FC<QuantityInputProps> = ({ value, onChange, presets 
         onChange={handleChange}
         placeholder={placeholder}
         readOnly={readOnly}
-        className={`${inputClassName} border border-gray-300 h-8 text-center py-1 rounded-l-md focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm disabled:bg-gray-100 relative z-10`}
+        className={`${inputClassName} border-t border-b border-gray-300 h-8 text-center py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm disabled:bg-gray-100`}
       />
-      <div className="flex">
-        {presets.map((p, index) => (
-          <PresetButton key={p.val} val={p.val} display={p.display} isLast={index === presets.length - 1} />
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={handleIncrement}
+        disabled={readOnly}
+        className="px-3 h-8 text-lg font-semibold border border-gray-300 rounded-r-md bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+        aria-label="Increment quantity"
+      >
+        +
+      </button>
     </div>
   );
 };

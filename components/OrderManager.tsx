@@ -15,16 +15,6 @@ interface OrderManagerProps {
   setPendingDeliveries: React.Dispatch<React.SetStateAction<PendingDelivery[]>>;
 }
 
-const orderPresets = [
-    { val: '0', display: '0' },
-    { val: '0.5', display: '½' },
-    { val: '1', display: '1' },
-    { val: '1.5', display: '1.5' },
-    { val: '2', display: '2' },
-    { val: '2.5', display: '2.5' },
-    { val: '3', display: '3' },
-];
-
 const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries, pendingDeliveries, setPendingDeliveries }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
@@ -83,7 +73,7 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
   const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
         const value = pendingChanges.get(customerId);
-        return value!;
+        return value === 0 ? '' : value!;
     }
 
     const orderQty = ordersForDate.get(customerId);
@@ -109,18 +99,21 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             quantity,
         }));
 
-        // Data for ORDERS table: Upsert all changes, including those with quantity 0.
-        // This ensures a "no order" instruction is explicitly saved.
-        const ordersToUpsert = dataToUpsert;
+        // Data for ORDERS table (source of truth for this view)
+        const ordersToUpsert = dataToUpsert.filter(o => o.quantity > 0);
+        const customerIdsToDeleteOrders = dataToUpsert
+            .filter(d => d.quantity === 0)
+            .map(d => d.customerId)
+            .filter(id => ordersForDate.has(id));
 
-        // Data for PENDING_DELIVERIES table: Only submit orders with quantity > 0 for approval.
+        // Data for PENDING_DELIVERIES table (submission for approval)
         const pendingDeliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
         const customerIdsToDeletePending = dataToUpsert
             .filter(d => d.quantity === 0)
             .map(d => d.customerId)
             .filter(id => pendingDeliveriesForDate.has(id));
 
-        // Data for DELIVERIES table: Clear any previously approved deliveries for this date if the order changes.
+        // Data for DELIVERIES table (clearing previously approved entries)
         const customerIdsWithChanges = dataToUpsert.map(d => d.customerId);
         const deliveriesForDateMap = new Map(deliveries.filter(d => d.date === selectedDate).map(d => [d.customerId, d.quantity]));
         const customerIdsToDeleteDeliveries = customerIdsWithChanges.filter(id => deliveriesForDateMap.has(id));
@@ -130,6 +123,10 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         const orderUpsertPromise = ordersToUpsert.length > 0
             ? supabase.from('orders').upsert(ordersToUpsert, { onConflict: 'customerId,date' }).select()
             : Promise.resolve({ data: [], error: null });
+        
+        const orderDeletePromise = customerIdsToDeleteOrders.length > 0
+            ? supabase.from('orders').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteOrders)
+            : Promise.resolve({ error: null });
         
         const pendingDeliveryUpsertPromise = pendingDeliveriesToUpsert.length > 0
             ? supabase.from('pending_deliveries').upsert(pendingDeliveriesToUpsert, { onConflict: 'customerId,date' }).select()
@@ -144,14 +141,16 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             : Promise.resolve({ error: null });
 
 
-        const [orderUpsertResult, pendingUpsertResult, pendingDeleteResult, deliveryDeleteResult] = await Promise.all([
+        const [orderUpsertResult, orderDeleteResult, pendingUpsertResult, pendingDeleteResult, deliveryDeleteResult] = await Promise.all([
             orderUpsertPromise,
+            orderDeletePromise,
             pendingDeliveryUpsertPromise,
             pendingDeliveryDeletePromise,
             deliveryDeletePromise
         ]);
         
         if (orderUpsertResult.error) throw orderUpsertResult.error;
+        if (orderDeleteResult.error) throw orderDeleteResult.error;
         if (pendingUpsertResult.error) throw pendingUpsertResult.error;
         if (pendingDeleteResult.error) throw pendingDeleteResult.error;
         if (deliveryDeleteResult.error) throw deliveryDeleteResult.error;
@@ -159,7 +158,8 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         // --- Update local state ---
 
         setOrders(prev => {
-            const updatedMap = new Map(prev.map(o => [`${o.customerId}-${o.date}`, o]));
+            const afterDelete = prev.filter(o => !(o.date === selectedDate && customerIdsToDeleteOrders.includes(o.customerId)));
+            const updatedMap = new Map(afterDelete.map(o => [`${o.customerId}-${o.date}`, o]));
             if (orderUpsertResult.data) {
                 (orderUpsertResult.data as Order[]).forEach(o => updatedMap.set(`${o.customerId}-${o.date}`, o));
             }
@@ -314,7 +314,6 @@ ${orderLines}
                                                 onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
                                                 placeholder={String(customer.defaultQuantity)}
                                                 inputClassName="w-20"
-                                                presets={orderPresets}
                                             />
                                         </td>
                                     </tr>

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -549,7 +550,7 @@ const App: React.FC = () => {
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}
-                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} orders={orders} />}
+                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
                             {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}

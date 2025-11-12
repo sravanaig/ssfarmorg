@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer, Order, PendingDelivery } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -64,7 +63,7 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
   const getDisplayQuantity = (customerId: string): number | string => {
     if (pendingChanges.has(customerId)) {
         const value = pendingChanges.get(customerId);
-        return value!;
+        return value === 0 ? '' : value!;
     }
     if (pendingDeliveriesForDate.has(customerId)) {
         return pendingDeliveriesForDate.get(customerId)!;
@@ -86,14 +85,31 @@ const StaffDeliveryManager: React.FC<StaffDeliveryManagerProps> = ({ customers, 
         const changes = Array.from(pendingChanges.entries());
         const dataToUpsert = changes.map(([customerId, quantity]) => ({ customerId, date: selectedDate, quantity }));
 
-        const { data, error } = await supabase.from('pending_deliveries').upsert(dataToUpsert, { onConflict: 'customerId,date' }).select();
+        const submissionsToUpsert = dataToUpsert.filter(d => d.quantity > 0);
+        const customerIdsToDelete = dataToUpsert
+            .filter(d => d.quantity === 0)
+            .map(d => d.customerId)
+            .filter(id => pendingDeliveriesForDate.has(id));
+
+        const upsertPromise = submissionsToUpsert.length > 0 
+            ? supabase.from('pending_deliveries').upsert(submissionsToUpsert, { onConflict: 'customerId,date' }).select()
+            : Promise.resolve({ data: [], error: null });
         
-        if (error) throw error;
+        const deletePromise = customerIdsToDelete.length > 0
+            ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDelete)
+            : Promise.resolve({ error: null });
+
+        // Fix: Use `deletePromise` instead of `deleteResult` which has not been declared yet.
+        const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
+        
+        if (upsertResult.error) throw upsertResult.error;
+        if (deleteResult.error) throw deleteResult.error;
 
         setPendingDeliveries(prev => {
-            const updatedMap = new Map(prev.map(pd => [`${pd.customerId}-${pd.date}`, pd]));
-            if (data) {
-                (data as PendingDelivery[]).forEach(pd => updatedMap.set(`${pd.customerId}-${pd.date}`, pd));
+            const afterDelete = prev.filter(pd => !(pd.date === selectedDate && customerIdsToDelete.includes(pd.customerId)));
+            const updatedMap = new Map(afterDelete.map(pd => [`${pd.customerId}-${pd.date}`, pd]));
+            if (upsertResult.data) {
+                (upsertResult.data as PendingDelivery[]).forEach(pd => updatedMap.set(`${pd.customerId}-${pd.date}`, pd));
             }
             return Array.from(updatedMap.values());
         });
