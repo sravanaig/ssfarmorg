@@ -269,8 +269,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // FIX: The `result` of a FileReader can be a string, ArrayBuffer, or null.
-            // A type guard is necessary to ensure we have a string before using string methods.
+            // Fix for line 294: The `result` property of a FileReader can be a string, but TypeScript may infer it as `unknown`.
+            // This type guard ensures `text` is a string before we call string methods like `.split()` on it.
             const text = e.target?.result;
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');

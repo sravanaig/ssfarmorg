@@ -46,7 +46,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     <button onClick={() => handleNavClick('home', 'testimonials')} className="text-gray-600 hover:text-blue-600 transition-colors">Testimonials</button>
                     <button onClick={() => handleNavClick('home', 'team')} className="text-gray-600 hover:text-blue-600 transition-colors">Our Team</button>
                     <button onClick={onLoginClick} className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-transform transform hover:scale-105">
-                        Admin Login
+                        Login
                     </button>
                 </div>
 
@@ -71,7 +71,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                         <button onClick={() => handleNavClick('home', 'testimonials')} className="text-2xl text-gray-800 hover:text-blue-600">Testimonials</button>
                         <button onClick={() => handleNavClick('home', 'team')} className="text-2xl text-gray-800 hover:text-blue-600">Our Team</button>
                         <button onClick={() => { onLoginClick(); setIsMenuOpen(false); }} className="mt-8 px-8 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-700">
-                            Admin Login
+                            Login
                         </button>
                     </div>
                 </div>

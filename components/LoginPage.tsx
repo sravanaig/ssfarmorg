@@ -13,7 +13,7 @@ type LoginMode = 'admin' | 'customer';
 
 const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, onBackToHome }) => {
     // Shared State
-    const [mode, setMode] = useState<LoginMode>('admin');
+    const [mode, setMode] = useState<LoginMode>('customer');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
     const [isLoading, setIsLoading] = useState(false);
     

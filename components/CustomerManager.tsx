@@ -301,7 +301,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   const setDefaultPasswordIfNeeded = async (customerId: string, phone: string, newUserId?: string | null) => {
     if (!phone || !/^\+91\d{10}$/.test(phone)) return;
 
-    const tenDigitPhone = phone.slice(3);
+    const tenDigitPhone = phone.replace(/\D/g, '').slice(-10);
     const password = `${tenDigitPhone}*`;
 
     try {
