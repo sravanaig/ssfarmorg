@@ -245,17 +245,33 @@ const App: React.FC = () => {
             return;
         }
 
-        const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('role, status')
-            .eq('id', user.id)
-            .single();
-        
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
-            throw profileError;
-        }
+        // Fetch both customer and profile data concurrently to determine role.
+        const [
+            { data: customerData, error: customerError },
+            { data: profileData, error: profileError }
+        ] = await Promise.all([
+            supabase.from('customers').select('*').eq('userId', user.id).single(),
+            supabase.from('profiles').select('role, status').eq('id', user.id).single()
+        ]);
 
-        if (profileData) { // User is admin or staff
+        if (customerError && customerError.code !== 'PGRST116') throw customerError;
+        if (profileError && profileError.code !== 'PGRST116') throw profileError;
+
+        // Priority 1: Check if the user is linked to a customer record.
+        if (customerData) {
+            setUserRole('customer');
+            setCustomerProfile(customerData as Customer);
+            // RLS will ensure only their data is fetched
+            const [deliveriesData, paymentsData] = await Promise.all([
+                fetchAll<Delivery>('deliveries'),
+                fetchAll<Payment>('payments')
+            ]);
+            setDeliveries(deliveriesData || []);
+            setPayments(paymentsData || []);
+            await fetchPublicContent();
+        } 
+        // Priority 2: If not a customer, check if they are an admin or staff.
+        else if (profileData) {
             const role = profileData.role as Profile['role'];
             setUserRole(role);
     
@@ -328,33 +344,11 @@ const App: React.FC = () => {
                     setWebsiteContent(seededContent.content as WebsiteContent);
                 }
             }
-        } else { // User might be a customer
-            const { data: customerData, error: customerError } = await supabase
-                .from('customers')
-                .select('*')
-                .eq('userId', user.id)
-                .single();
-
-            if (customerError && customerError.code !== 'PGRST116') {
-                throw customerError;
-            }
-
-            if(customerData) {
-                setUserRole('customer');
-                setCustomerProfile(customerData as Customer);
-                // RLS will ensure only their data is fetched
-                const [deliveriesData, paymentsData] = await Promise.all([
-                    fetchAll<Delivery>('deliveries'),
-                    fetchAll<Payment>('payments')
-                ]);
-                setDeliveries(deliveriesData || []);
-                setPayments(paymentsData || []);
-                await fetchPublicContent();
-            } else {
-                // Not an admin, staff, or linked customer. Log them out.
-                 await supabase.auth.signOut();
-                 setFetchError("Your user account is not associated with an admin, staff, or customer profile. Please contact support.");
-            }
+        } 
+        // Priority 3: User is not linked to anything.
+        else {
+             await supabase.auth.signOut();
+             setFetchError("Your user account is not associated with an admin, staff, or customer profile. Please contact support.");
         }
     } catch (error: any) {
         console.error('Error fetching data:', error);
