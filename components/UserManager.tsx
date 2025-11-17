@@ -72,17 +72,18 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
 
     const handleRoleChange = async (userId: string, newRole: 'admin' | 'staff') => {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (currentUser?.id === userId && newRole === 'staff') {
-            alert("For security, you cannot change your own role from 'admin' to 'staff'. Another admin must perform this action.");
+        if (currentUser?.id === userId && newRole !== 'admin') {
+            alert("For security, you cannot change your own role from 'admin'. Another admin must perform this action.");
             return;
         }
 
         setIsUpdating(userId);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ role: newRole })
-                .eq('id', userId);
+            // Fix: Use a secure RPC call to update roles, bypassing RLS issues.
+            const { error } = await supabase.rpc('admin_update_user_role', {
+                target_user_id: userId,
+                new_role: newRole
+            });
             
             if (error) throw error;
 

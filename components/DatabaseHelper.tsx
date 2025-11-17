@@ -284,6 +284,33 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION update_user_status(uuid, text) TO authenticated;
 
+-- (NEW) Function for an admin to update a user's role.
+CREATE OR REPLACE FUNCTION admin_update_user_role(target_user_id uuid, new_role text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    IF auth.uid() = target_user_id AND new_role <> 'admin' THEN
+        RAISE EXCEPTION 'Admins cannot change their own role.';
+    END IF;
+
+    IF new_role NOT IN ('admin', 'staff') THEN
+        RAISE EXCEPTION 'Invalid role value. Must be ''admin'' or ''staff''.';
+    END IF;
+
+    UPDATE public.profiles
+    SET role = new_role
+    WHERE id = target_user_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION admin_update_user_role(uuid, text) TO authenticated;
+
 
 -- STEP 8: Create all other application tables if they don't already exist.
 CREATE TABLE IF NOT EXISTS public.customers (
@@ -651,6 +678,7 @@ DROP FUNCTION IF EXISTS public.get_all_users();
 DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
 DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
 DROP FUNCTION IF EXISTS public.update_user_status(uuid, text);
+DROP FUNCTION IF EXISTS public.admin_update_user_role(uuid, text);
 DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
 DROP FUNCTION IF EXISTS public.customer_exists_by_phone(text);
 DROP FUNCTION IF EXISTS public.link_customer_to_auth_user(text);
