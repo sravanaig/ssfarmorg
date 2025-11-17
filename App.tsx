@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -75,8 +74,8 @@ const defaultContent: WebsiteContent = {
     title: "Meet Our Founders",
     subtitle: "The minds and hearts behind your daily freshness.",
     list: [
-      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table." },
-      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended." }
+      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table.", image: "https://raw.githubusercontent.com/sravanaig/images/main/images/sravan.jpeg" },
+      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended.", image: "https://raw.githubusercontent.com/sravanaig/images/main/images/sudhakar.jpg" }
     ]
   },
   productsPage: {
@@ -149,11 +148,11 @@ const App: React.FC = () => {
                 console.error("Fetched website content is malformed. Falling back to default.", contentData.content);
              }
             setFetchError('SCHEMA_MISMATCH: Your website content is not visible to the public. Please log in to create it, or run the updated database setup script to fix visibility.');
-            setWebsiteContent(defaultContent);
+            setWebsiteContent(prev => prev || defaultContent);
         }
     } catch (error: any) {
         console.error('Error fetching public website content:', error.message || error);
-        setWebsiteContent(defaultContent);
+        setWebsiteContent(prev => prev || defaultContent);
     }
   };
 

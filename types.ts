@@ -65,7 +65,7 @@ export interface WebsiteContent {
   whyChooseUs: { title: string; subtitle: string; features: { title: string; text: string; }[] };
   productsSection: { title: string; subtitle: string; };
   testimonials: { title: string; subtitle: string; list: { quote: string; name: string; role: string; }[] };
-  founders: { title: string; subtitle:string; list: { name: string; title: string; bio: string; }[] };
+  founders: { title: string; subtitle:string; list: { name: string; title: string; bio: string; image: string; }[] };
   productsPage: {
     title: string;
     subtitle: string;

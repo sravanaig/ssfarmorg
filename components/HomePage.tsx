@@ -254,7 +254,7 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
                     {content.founders.list.map((founder, index) => (
                          <div key={index} className="bg-white p-8 rounded-lg shadow-sm">
-                            <img src={`https://ui-avatars.com/api/?name=${founder.name.replace(' ', '+')}&background=dbeafe&color=2563eb&size=96`} alt={`Founder ${founder.name}`} className="w-24 h-24 rounded-full mx-auto mb-4" />
+                            <img src={founder.image || `https://ui-avatars.com/api/?name=${founder.name.replace(' ', '+')}&background=dbeafe&color=2563eb&size=96`} alt={`Founder ${founder.name}`} className="w-24 h-24 rounded-full mx-auto mb-4 object-cover" />
                             <h3 className="text-xl font-bold">{founder.name}</h3>
                             <p className="text-blue-600 font-semibold mb-2">{founder.title}</p>
                             <p className="text-gray-600 text-justify">{founder.bio}</p>
