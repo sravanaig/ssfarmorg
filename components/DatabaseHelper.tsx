@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { ClipboardIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
@@ -240,13 +241,13 @@ BEGIN
         RAISE EXCEPTION 'User with this email already exists.';
     END IF;
     
-    -- (FIX) Use format() to build a json string, ensuring compatibility with older Supabase projects.
+    -- (FIX) Use format() and cast to jsonb, ensuring compatibility with all Supabase projects.
     SELECT id INTO new_user_id FROM auth.admin_create_user(
         format('{
             "email": %L,
             "password": %L,
             "email_confirm": true
-        }', p_email, p_password)::json
+        }', p_email, p_password)::jsonb
     );
 
     -- The handle_new_user trigger inserts a 'pending' profile. Update it to be 'approved'.
@@ -512,8 +513,7 @@ BEGIN
             PERFORM auth.admin_delete_user(auth_user_id_with_email);
         END IF;
         
-        -- (FIX) Use older 'auth.update_user_by_id' instead of 'auth.admin_update_user_by_id'
-        -- for maximum compatibility with older Supabase projects that may not have the newer function.
+        -- (FIX) Use older 'auth.update_user_by_id' and cast to 'jsonb' for maximum compatibility.
         PERFORM auth.update_user_by_id(
             v_customer_user_id,
             format('{
@@ -521,7 +521,7 @@ BEGIN
                 "password": %L,
                 "email_confirm": true,
                 "app_metadata": {"is_customer": true}
-            }', v_email, p_password)::json
+            }', v_email, p_password)::jsonb
         );
         RETURN v_customer_user_id;
 
@@ -529,25 +529,26 @@ BEGIN
         -- CASE B: Customer is NOT linked to an auth user.
         IF auth_user_id_with_email IS NOT NULL THEN
             -- An unlinked auth user already exists. Take it over and mark as customer.
-            -- (FIX) Use older 'auth.update_user_by_id' for maximum compatibility.
+            -- (FIX) Use older 'auth.update_user_by_id' and cast to 'jsonb' for maximum compatibility.
             PERFORM auth.update_user_by_id(
                 auth_user_id_with_email,
                 format('{
                     "password": %L,
                     "app_metadata": {"is_customer": true}
-                }', p_password)::json
+                }', p_password)::jsonb
             );
             UPDATE public.customers SET "userId" = auth_user_id_with_email WHERE id = p_customer_id;
             RETURN auth_user_id_with_email;
         ELSE
             -- No auth user exists for this phone/email. Create a new one and mark as customer.
+            -- (FIX) Cast to jsonb for create user as well, for consistency.
             SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
                 format('{
                     "email": %L,
                     "password": %L,
                     "email_confirm": true,
                     "app_metadata": {"is_customer": true}
-                }', v_email, p_password)::json
+                }', v_email, p_password)::jsonb
             );
             UPDATE public.customers SET "userId" = new_auth_user_id WHERE id = p_customer_id;
             RETURN new_auth_user_id;
