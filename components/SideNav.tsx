@@ -1,15 +1,14 @@
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon, CheckIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
 import type { Profile } from '../types';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'bills_received' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
 
 interface SideNavProps {
   activeView: View;
   setView: (view: View) => void;
   isOpen: boolean;
   setOpen: (isOpen: boolean) => void;
-  // Fix: The userRole in App.tsx can be 'customer'. The SideNav component is only rendered for admins, but to satisfy TypeScript's type checking across components, 'customer' is added here. This does not change the component's behavior.
   userRole: Profile['role'] | 'customer' | null;
 }
 
@@ -42,7 +41,6 @@ const adminNavItems = [
     { view: 'delivery_approvals', label: 'Delivery Approvals', icon: <ApprovalIcon className="h-5 w-5" /> },
     { view: 'calendar', label: 'Calendar', icon: <CalendarIcon className="h-5 w-5" /> },
     { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
-    { view: 'bills_received', label: 'Bills Received', icon: <CheckIcon className="h-5 w-5" /> },
     { view: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-5 w-5" /> },
 ];
 const adminSystemItems = [

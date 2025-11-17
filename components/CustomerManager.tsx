@@ -17,6 +17,33 @@ const downloadCSV = (csvContent: string, filename: string) => {
     document.body.removeChild(link);
 };
 
+// Helper to parse a single CSV row, handling quoted fields with commas.
+const parseCsvRow = (row: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < row.length; i++) {
+        const char = row[i];
+        if (char === '"') {
+            // Handle escaped quotes ("") inside a quoted field
+            if (inQuotes && row[i + 1] === '"') {
+                current += '"';
+                i++; // Skip the next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current);
+    return result;
+};
+
+
 interface CustomerFormProps {
     onSubmit: (customer: Omit<Customer, 'id' | 'userId'>) => void;
     onClose: () => void;
@@ -433,31 +460,23 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
 
 
   const handleDeleteCustomer = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this customer? This will also delete their login and all associated data. This action cannot be undone.')) {
+    if (window.confirm('Are you sure you want to archive this customer? They will be hidden from active lists, but their data and login will be preserved. You can restore them later by editing them and setting their status back to "active".')) {
         try {
-            const customerToDelete = customers.find(c => c.id === id);
+            // Update the customer's status to 'inactive' instead of deleting them.
+            const { data, error } = await supabase
+              .from('customers')
+              .update({ status: 'inactive' })
+              .eq('id', id)
+              .select()
+              .single();
 
-            // First, delete the associated auth user if one exists.
-            if (customerToDelete?.userId) {
-                const { error: userDeleteError } = await supabase.rpc('delete_user_by_id', {
-                    target_user_id: customerToDelete.userId
-                });
-                
-                if (userDeleteError) {
-                    // Throw the error to stop the process if the auth user can't be deleted.
-                    // This prevents creating orphaned customer records later.
-                    throw userDeleteError;
-                }
-            }
-
-            // Proceed with deleting customer and related data
-            await supabase.from('deliveries').delete().eq('customerId', id);
-            await supabase.from('payments').delete().eq('customerId', id);
-            await supabase.from('orders').delete().eq('customerId', id);
-            const { error } = await supabase.from('customers').delete().eq('id', id);
             if (error) throw error;
-            
-            setCustomers(prev => prev.filter(c => c.id !== id));
+
+            if (data) {
+                // Update the customer in the local state to reflect the change.
+                setCustomers(prev => prev.map(c => c.id === id ? { ...c, status: 'inactive' } : c));
+                alert('Customer has been archived.');
+            }
         } catch (error: any) {
             alert(getFriendlyErrorMessage(error));
         }
@@ -499,60 +518,110 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
   
   const processAndImportCustomers = async (csvText: string) => {
-        const rows = csvText.split('\n').filter(row => row.trim() !== '');
-        if (rows.length < 2) {
-            throw new Error("CSV data is empty or contains only a header.");
+    const rows = csvText.split('\n').filter(row => row.trim() !== '');
+    if (rows.length < 2) {
+        throw new Error("CSV data is empty or contains only a header.");
+    }
+
+    const header = parseCsvRow(rows[0]).map(h => h.trim());
+    const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity'];
+    if (!requiredHeaders.every(h => header.includes(h))) {
+        throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
+    }
+
+    const parsedCustomersWithDuplicates = rows.slice(1).map(row => {
+        const values = parseCsvRow(row);
+        if (values.length < header.length) {
+            console.warn("Skipping malformed CSV row:", row);
+            return null;
         }
-        
-        const header = rows[0].split(',').map(h => h.trim());
-        const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity']; // status is optional
-        if (!requiredHeaders.every(h => header.includes(h))) {
-            throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
-        }
-        
-        const newCustomersData = rows.slice(1).map(row => {
-            const values = row.split(',');
-            const getColumnValue = (columnName: string) => values[header.indexOf(columnName)]?.trim() || '';
+        const getColumnValue = (columnName: string) => {
+            const index = header.indexOf(columnName);
+            if (index === -1) return '';
+            return values[index]?.trim() || '';
+        };
 
-            let status = getColumnValue('status').toLowerCase();
-            if (status !== 'active' && status !== 'inactive') {
-                status = 'active';
-            }
-
-            const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
-            const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
-
-            return {
-                name: getColumnValue('name'),
-                address: getColumnValue('address'),
-                phone: phoneFormatted,
-                email: getColumnValue('email'),
-                milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
-                defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
-                status: status as 'active' | 'inactive',
-                previousBalance: parseFloat(getColumnValue('previousBalance')) || 0,
-                balanceAsOfDate: getColumnValue('balanceAsOfDate') || null,
-            };
-        }).filter(customer => customer.name);
-
-        if (newCustomersData.length === 0) {
-            alert("No valid customer data found to import.");
-            return;
+        let status = getColumnValue('status').toLowerCase();
+        if (status !== 'active' && status !== 'inactive') {
+            status = 'active';
         }
 
-        const { data, error } = await supabase.from('customers').insert(newCustomersData).select();
+        const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
+        const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
+
+        return {
+            name: getColumnValue('name'),
+            address: getColumnValue('address'),
+            phone: phoneFormatted,
+            email: getColumnValue('email'),
+            milkPrice: parseFloat(getColumnValue('milkPrice')) || 0,
+            defaultQuantity: parseFloat(getColumnValue('defaultQuantity')) || 0,
+            status: status as 'active' | 'inactive',
+            previousBalance: parseFloat(getColumnValue('previousBalance')) || 0,
+            balanceAsOfDate: getColumnValue('balanceAsOfDate') || null,
+        };
+    }).filter(customer => customer && customer.name);
+
+    if (parsedCustomersWithDuplicates.length === 0) {
+        alert("No valid customer data found to import.");
+        return;
+    }
+    
+    // Deduplicate customers by phone number, prioritizing the last entry in the CSV.
+    // Customers without a phone number are treated as unique inserts.
+    const phoneMap = new Map<string, any>();
+    const customersWithoutPhone: any[] = [];
+    parsedCustomersWithDuplicates.forEach(customer => {
+        if (customer!.phone) {
+            phoneMap.set(customer!.phone, customer);
+        } else {
+            customersWithoutPhone.push(customer);
+        }
+    });
+    const customersWithPhone = Array.from(phoneMap.values());
+
+    if (customersWithPhone.length === 0 && customersWithoutPhone.length === 0) {
+        alert("No valid customer data found to import.");
+        return;
+    }
+
+    let upsertedCustomers: Customer[] = [];
+    let insertedCustomers: Customer[] = [];
+    
+    // Handle customers with phone numbers using upsert
+    if (customersWithPhone.length > 0) {
+        const { data, error } = await supabase.from('customers').upsert(customersWithPhone, { onConflict: 'phone' }).select();
         if (error) throw error;
+        if (data) upsertedCustomers = data as Customer[];
+    }
 
-        if (data) {
-            const importedCustomers = data as Customer[];
-            setCustomers(prev => [...prev, ...importedCustomers].sort((a,b) => a.name.localeCompare(b.name)));
-            
-            // Set passwords for imported customers in the background
-            for (const customer of importedCustomers) {
+    // Handle customers without phone numbers using insert
+    if (customersWithoutPhone.length > 0) {
+        const { data, error } = await supabase.from('customers').insert(customersWithoutPhone).select();
+        if (error) throw error;
+        if (data) insertedCustomers = data as Customer[];
+    }
+
+    const processedCustomers = [...upsertedCustomers, ...insertedCustomers];
+
+    if (processedCustomers.length > 0) {
+        // Update local state by merging the new/updated data
+        setCustomers(prev => {
+            const customerMap = new Map(prev.map(c => [c.id, c]));
+            processedCustomers.forEach(c => customerMap.set(c.id, c));
+            return Array.from(customerMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        });
+
+        // Set passwords for all processed customers with a phone number
+        for (const customer of processedCustomers) {
+            if (customer.phone) {
                 await setDefaultPasswordIfNeeded(customer.id, customer.phone);
             }
-            alert(`${importedCustomers.length} customers imported successfully. Default passwords have been set.`);
         }
+        alert(`${processedCustomers.length} customer records were successfully imported or updated. Logins have been created/updated for customers with phone numbers.`);
+    } else {
+        alert("No customers were imported. This may be due to an unexpected error.");
+    }
   }
 
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {

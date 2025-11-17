@@ -357,22 +357,19 @@ const App: React.FC = () => {
         }
     } catch (error: any) {
         console.error('Error fetching data:', error);
-        
-        const safeErrorMessage = (typeof error?.message === 'string') ? error.message : '';
         const friendlyMessage = getFriendlyErrorMessage(error);
-        const lowerCaseMsg = safeErrorMessage.toLowerCase();
-
+        const msg = (error.message || '').toLowerCase();
         if (
-            lowerCaseMsg.includes('relation "public.profiles" does not exist') ||
-            (lowerCaseMsg.includes('column') && lowerCaseMsg.includes('does not exist')) ||
-            (lowerCaseMsg.includes('relation') && lowerCaseMsg.includes('does not exist')) ||
-            lowerCaseMsg.includes('could not find the table') ||
-            lowerCaseMsg.includes('in the schema cache') ||
-            lowerCaseMsg.includes('privileges') ||
-            lowerCaseMsg.includes('infinite recursion detected') ||
-            lowerCaseMsg.includes('structure of query does not match')
+            msg.includes('relation "public.profiles" does not exist') ||
+            (msg.includes('column') && msg.includes('does not exist')) ||
+            (msg.includes('relation') && msg.includes('does not exist')) ||
+            msg.includes('could not find the table') ||
+            msg.includes('in the schema cache') ||
+            msg.includes('privileges') ||
+            msg.includes('infinite recursion detected') ||
+            msg.includes('structure of query does not match')
         ) {
-             setFetchError(`SCHEMA_MISMATCH: ${safeErrorMessage || 'A database schema error occurred. Please check the console.'}`);
+             setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
         } else {
             setFetchError(`Error loading data. ${friendlyMessage}`);
         }
