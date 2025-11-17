@@ -357,10 +357,8 @@ const App: React.FC = () => {
         }
     } catch (error: any) {
         console.error('Error fetching data:', error);
-        
-        const safeErrorMessage = (typeof error?.message === 'string') ? error.message : '';
         const friendlyMessage = getFriendlyErrorMessage(error);
-        const lowerCaseMsg = safeErrorMessage.toLowerCase();
+        const lowerCaseMsg = friendlyMessage.toLowerCase();
 
         if (
             lowerCaseMsg.includes('relation "public.profiles" does not exist') ||
@@ -372,7 +370,7 @@ const App: React.FC = () => {
             lowerCaseMsg.includes('infinite recursion detected') ||
             lowerCaseMsg.includes('structure of query does not match')
         ) {
-             setFetchError(`SCHEMA_MISMATCH: ${safeErrorMessage || 'A database schema error occurred. Please check the console.'}`);
+             setFetchError(`SCHEMA_MISMATCH: ${friendlyMessage}`);
         } else {
             setFetchError(`Error loading data. ${friendlyMessage}`);
         }

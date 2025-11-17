@@ -123,19 +123,13 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 
 -- STEP 6: Create a trigger to automatically create a profile when a new user signs up.
--- (FIX) This trigger now intelligently ignores users created for customers.
+-- The profile will be created with the default 'pending' status.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
-  -- Do not create a profile for users created via the customer management flow.
-  -- They are identified by app_metadata. This avoids customers being treated as pending staff.
-  IF new.raw_app_meta_data->>'is_customer' = 'true' THEN
-    RETURN new;
-  END IF;
-  
   INSERT INTO public.profiles (id, role, status)
   VALUES (new.id, 'staff', 'pending');
   RETURN new;
@@ -462,7 +456,7 @@ ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 -- STEP 10: Create helper functions for the customer login flow.
 -- These are SECURITY DEFINER to safely bypass RLS for specific, controlled actions.
 
--- (FIX) This function is updated to add metadata to customer auth accounts.
+-- Function for an admin to set/update a customer's password and create their auth account if needed.
 DROP FUNCTION IF EXISTS public.admin_set_customer_password(uuid, text);
 CREATE OR REPLACE FUNCTION public.admin_set_customer_password(
     p_customer_id uuid,
@@ -506,44 +500,37 @@ BEGIN
     -- 4. Main Logic
     IF v_customer_user_id IS NOT NULL THEN
         -- CASE A: Customer is already linked to an auth user.
+        -- Goal is to ensure the linked user (v_customer_user_id) has the correct email (v_email).
+        
         IF auth_user_id_with_email IS NOT NULL AND auth_user_id_with_email <> v_customer_user_id THEN
-            -- CONFLICT: The target email is taken by ANOTHER auth user. Delete it.
+            -- CONFLICT: The target email is taken by ANOTHER auth user.
+            -- This other user is an orphan or belongs to a deleted customer. We must delete it
+            -- before we can assign its email to our current linked user.
             PERFORM auth.admin_delete_user(auth_user_id_with_email);
         END IF;
         
+        -- Now it's safe to update the current linked user's details.
         PERFORM auth.admin_update_user_by_id(
             v_customer_user_id,
-            jsonb_build_object(
-                'email', v_email,
-                'password', p_password,
-                'email_confirm', true,
-                'app_metadata', jsonb_build_object('is_customer', true)
-            )
+            jsonb_build_object('email', v_email, 'password', p_password, 'email_confirm', true)
         );
         RETURN v_customer_user_id;
 
     ELSE
         -- CASE B: Customer is NOT linked to an auth user.
+        
         IF auth_user_id_with_email IS NOT NULL THEN
-            -- An unlinked auth user already exists. Take it over and mark as customer.
+            -- An unlinked auth user already exists. We'll take it over.
             PERFORM auth.admin_update_user_by_id(
                 auth_user_id_with_email,
-                jsonb_build_object(
-                    'password', p_password,
-                    'app_metadata', jsonb_build_object('is_customer', true)
-                )
+                jsonb_build_object('password', p_password) -- Just update the password
             );
             UPDATE public.customers SET "userId" = auth_user_id_with_email WHERE id = p_customer_id;
             RETURN auth_user_id_with_email;
         ELSE
-            -- No auth user exists for this phone/email. Create a new one and mark as customer.
+            -- No auth user exists for this phone/email. Create a new one.
             SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
-                jsonb_build_object(
-                    'email', v_email,
-                    'password', p_password,
-                    'email_confirm', true,
-                    'app_metadata', jsonb_build_object('is_customer', true)
-                )
+                jsonb_build_object('email', v_email, 'password', p_password, 'email_confirm', true)
             );
             UPDATE public.customers SET "userId" = new_auth_user_id WHERE id = p_customer_id;
             RETURN new_auth_user_id;
