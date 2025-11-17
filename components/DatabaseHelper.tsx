@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { ClipboardIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
@@ -511,7 +510,6 @@ BEGIN
             email = v_email,
             encrypted_password = crypt(p_password, gen_salt('bf')),
             email_confirmed_at = now(),
-            password_last_changed_at = now(),
             raw_app_meta_data = raw_app_meta_data || '{"is_customer": true}'::jsonb
         WHERE id = v_customer_user_id;
         
@@ -528,7 +526,6 @@ BEGIN
             SET
                 encrypted_password = crypt(p_password, gen_salt('bf')),
                 email_confirmed_at = now(),
-                password_last_changed_at = now(),
                 raw_app_meta_data = raw_app_meta_data || '{"is_customer": true}'::jsonb
             WHERE id = auth_user_id_with_email;
             
