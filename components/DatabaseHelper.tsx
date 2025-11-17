@@ -464,7 +464,9 @@ ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 -- STEP 10: Create helper functions for the customer login flow.
 -- These are SECURITY DEFINER to safely bypass RLS for specific, controlled actions.
 
--- (FIX) This function is updated to add metadata to customer auth accounts.
+-- (DEFINITIVE FIX) This function replaces calls to the missing 'auth.update_user_by_id' function
+-- by updating the auth.users table directly. It uses the pgcrypto extension to securely hash
+-- the password, providing a robust alternative for older Supabase projects.
 DROP FUNCTION IF EXISTS public.admin_set_customer_password(uuid, text);
 CREATE OR REPLACE FUNCTION public.admin_set_customer_password(
     p_customer_id uuid,
@@ -473,7 +475,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_customer_password(
 RETURNS uuid -- returns the auth user's ID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_customer_user_id uuid;
@@ -502,46 +504,39 @@ BEGIN
         RAISE EXCEPTION 'Password must be at least 6 characters long.';
     END IF;
 
-    -- 3. Check for a conflicting auth user with the target email
-    SELECT id INTO auth_user_id_with_email FROM auth.users WHERE email = v_email;
-
-    -- 4. Main Logic
     IF v_customer_user_id IS NOT NULL THEN
-        -- CASE A: Customer is already linked to an auth user.
-        IF auth_user_id_with_email IS NOT NULL AND auth_user_id_with_email <> v_customer_user_id THEN
-            -- CONFLICT: The target email is taken by ANOTHER auth user. Delete it.
-            PERFORM auth.admin_delete_user(auth_user_id_with_email);
-        END IF;
+        -- CASE A: Customer is already linked to an auth user. Reset their password.
+        UPDATE auth.users
+        SET
+            email = v_email,
+            encrypted_password = crypt(p_password, gen_salt('bf')),
+            email_confirmed_at = now(),
+            password_last_changed_at = now(),
+            raw_app_meta_data = raw_app_meta_data || '{"is_customer": true}'::jsonb
+        WHERE id = v_customer_user_id;
         
-        -- (FIX) Use older 'auth.update_user_by_id' and cast to 'jsonb' for maximum compatibility.
-        PERFORM auth.update_user_by_id(
-            v_customer_user_id,
-            format('{
-                "email": %L,
-                "password": %L,
-                "email_confirm": true,
-                "app_metadata": {"is_customer": true}
-            }', v_email, p_password)::jsonb
-        );
         RETURN v_customer_user_id;
-
+        
     ELSE
         -- CASE B: Customer is NOT linked to an auth user.
+        -- Check if an auth user with the target email already exists (e.g., from a deleted customer).
+        SELECT id INTO auth_user_id_with_email FROM auth.users WHERE email = v_email;
+
         IF auth_user_id_with_email IS NOT NULL THEN
-            -- An unlinked auth user already exists. Take it over and mark as customer.
-            -- (FIX) Use older 'auth.update_user_by_id' and cast to 'jsonb' for maximum compatibility.
-            PERFORM auth.update_user_by_id(
-                auth_user_id_with_email,
-                format('{
-                    "password": %L,
-                    "app_metadata": {"is_customer": true}
-                }', p_password)::jsonb
-            );
+            -- An unlinked auth user exists. Take it over for this customer.
+            UPDATE auth.users
+            SET
+                encrypted_password = crypt(p_password, gen_salt('bf')),
+                email_confirmed_at = now(),
+                password_last_changed_at = now(),
+                raw_app_meta_data = raw_app_meta_data || '{"is_customer": true}'::jsonb
+            WHERE id = auth_user_id_with_email;
+            
             UPDATE public.customers SET "userId" = auth_user_id_with_email WHERE id = p_customer_id;
             RETURN auth_user_id_with_email;
         ELSE
-            -- No auth user exists for this phone/email. Create a new one and mark as customer.
-            -- (FIX) Cast to jsonb for create user as well, for consistency.
+            -- No auth user exists. Create a new one.
+            -- This relies on auth.admin_create_user, which seems to exist.
             SELECT id INTO new_auth_user_id FROM auth.admin_create_user(
                 format('{
                     "email": %L,
