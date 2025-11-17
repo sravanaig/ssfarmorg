@@ -3,16 +3,18 @@ export const getFriendlyErrorMessage = (error: any): string => {
     return 'An unknown error occurred.';
   }
 
-  // Case 1: Error is already a reasonably-sized string
+  // Case 1: Error is already a string.
   if (typeof error === 'string') {
     return error;
   }
   
-  // Case 2: Error is an object with a 'message' property that is a string
-  if (error && typeof error.message === 'string' && error.message.trim() !== '') {
-    const message = error.message;
+  // Case 2: Error is an object. Extract a message string if possible.
+  // We check for common properties where error messages are stored.
+  const message = error.message || error.details || error.error_description;
+  if (typeof message === 'string' && message.trim() !== '') {
     const lowerCaseMessage = message.toLowerCase();
 
+    // Add user-friendly interpretations for common technical errors.
     if (lowerCaseMessage.includes('failed to fetch')) {
         return 'Network error: Could not connect to the database. Please check your internet connection and ensure your Supabase configuration in lib/supabaseClient.ts is correct.';
     }
@@ -32,10 +34,12 @@ export const getFriendlyErrorMessage = (error: any): string => {
         return 'Configuration Error: The SMS provider (e.g., Twilio) is not set up correctly in the Supabase project settings. Please contact the administrator.';
     }
     
+    // If no specific friendly message matches, return the original message.
     return message;
   }
 
-  // Case 3: Fallback for all other complex/unknown error objects
+  // Case 3: Fallback for all other complex/unknown error objects.
+  // Log the original error for debugging but show a generic message to the user.
   console.error("An error occurred with a non-standard message format:", error);
   return 'An unexpected error occurred. Please check the console for more details.';
 };

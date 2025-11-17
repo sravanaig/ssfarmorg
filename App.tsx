@@ -370,7 +370,7 @@ const App: React.FC = () => {
             lowerCaseMsg.includes('infinite recursion detected') ||
             lowerCaseMsg.includes('structure of query does not match')
         ) {
-             setFetchError(`SCHEMA_MISMATCH: ${friendlyMessage}`);
+             setFetchError(`SCHEMA_MISMATCH: A critical database error occurred, likely due to an outdated schema. Please use the Database Helper tool to apply the latest setup script.`);
         } else {
             setFetchError(`Error loading data. ${friendlyMessage}`);
         }

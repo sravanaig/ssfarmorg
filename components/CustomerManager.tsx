@@ -580,6 +580,33 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     reader.readAsText(file);
   };
 
+  const handleDeleteAllCustomers = async () => {
+    if (isReadOnly) return;
+    
+    const confirmation = prompt(
+      "DANGER: This will permanently delete ALL customers, their logins, and all associated delivery, payment, and order history. This action cannot be undone.\n\nTo confirm, type 'DELETE ALL CUSTOMERS' in the box below."
+    );
+
+    if (confirmation !== 'DELETE ALL CUSTOMERS') {
+      alert('Action cancelled.');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+        const { error } = await supabase.rpc('admin_delete_all_customers');
+        if (error) throw error;
+        
+        alert('All customer data has been successfully deleted. The page will now reload.');
+        window.location.reload();
+        
+    } catch (error: any) {
+        alert(getFriendlyErrorMessage(error));
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
+
   return (
     <div>
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
@@ -729,6 +756,34 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 </div>
             )}
         </div>
+        
+        {!isReadOnly && customers.length > 0 && (
+            <div className="mt-8 p-4 bg-red-50 border-t-4 border-red-500 rounded-b-lg shadow-md">
+                <h3 className="text-lg font-bold text-red-800">Danger Zone</h3>
+                <p className="mt-1 text-sm text-red-700">
+                    This action is irreversible and will permanently delete all customer data, including their logins, deliveries, and payment history.
+                </p>
+                <div className="mt-4">
+                    <button
+                        onClick={handleDeleteAllCustomers}
+                        disabled={isSubmitting}
+                        className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                    >
+                        {isSubmitting ? (
+                            <>
+                                <SpinnerIcon className="animate-spin h-5 w-5 mr-2" />
+                                Deleting...
+                            </>
+                        ) : (
+                            <>
+                                <TrashIcon className="h-5 w-5 mr-2" />
+                                Delete All Customers
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

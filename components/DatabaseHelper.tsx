@@ -540,6 +540,41 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION public.admin_set_customer_password(uuid, text) TO authenticated;
 
+-- (FIX) This function is now more robust. It deletes all customer data AND their auth users,
+-- including any "orphaned" auth users that might have been left from a previous failed deletion.
+-- This prevents "duplicate" errors when re-importing customers.
+DROP FUNCTION IF EXISTS public.admin_delete_all_customers();
+CREATE OR REPLACE FUNCTION public.admin_delete_all_customers()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    auth_user_record record;
+BEGIN
+    -- 1. Ensure the caller is an admin
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'User does not have admin privileges';
+    END IF;
+
+    -- 2. Truncate all customer-related tables first.
+    -- This is efficient and clears all deliveries, payments, orders etc. via CASCADE.
+    TRUNCATE public.customers RESTART IDENTITY CASCADE;
+
+    -- 3. Delete all associated auth.users for customers.
+    -- Customer auth emails are identified by the '@ssfarmorganic.local' domain.
+    -- This is safer than looping and deletes orphaned auth users as well.
+    FOR auth_user_record IN
+        SELECT id FROM auth.users WHERE email LIKE '%@ssfarmorganic.local'
+    LOOP
+        -- This will cascade and delete the profile entry if one exists for a customer.
+        PERFORM auth.admin_delete_user(auth_user_record.id);
+    END LOOP;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.admin_delete_all_customers() TO authenticated;
+
 
 -- Function to check if a customer exists by phone number.
 -- This is made robust to handle different phone number formats (+91, no prefix, spaces, etc.).
@@ -620,6 +655,7 @@ DROP FUNCTION IF EXISTS public.create_customer_login(uuid);
 DROP FUNCTION IF EXISTS public.customer_exists_by_phone(text);
 DROP FUNCTION IF EXISTS public.link_customer_to_auth_user(text);
 DROP FUNCTION IF EXISTS public.admin_set_customer_password(uuid, text);
+DROP FUNCTION IF EXISTS public.admin_delete_all_customers();
 
 
 -- After running this, you MUST run the 'Full Setup Script' to recreate the tables.
