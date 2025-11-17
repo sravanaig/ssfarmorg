@@ -134,7 +134,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                             <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
                         </div>
                         {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
-                        <p className="mt-1 text-xs text-gray-500">Default password is the mobile number (e.g., 9876543210)</p>
+                        <p className="mt-1 text-xs text-gray-500">Default password is the mobile number + * (e.g., 9876543210*)</p>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Email</label>
@@ -302,7 +302,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     if (!phone || !/^\+91\d{10}$/.test(phone)) return;
 
     const tenDigitPhone = phone.replace(/\D/g, '').slice(-10);
-    const password = tenDigitPhone;
+    const password = `${tenDigitPhone}*`;
 
     try {
         const { data: resultingUserId, error } = await supabase.rpc('admin_set_customer_password', {
