@@ -202,7 +202,8 @@ BEGIN
         RAISE EXCEPTION 'Admins cannot delete their own account';
     END IF;
     
-    PERFORM auth.admin_delete_user(target_user_id);
+    -- (FIX) Use older 'auth.delete_user' function name for maximum compatibility.
+    PERFORM auth.delete_user(target_user_id);
 END;
 $$;
 GRANT EXECUTE ON FUNCTION delete_user_by_id(uuid) TO authenticated;
@@ -511,7 +512,9 @@ BEGIN
             PERFORM auth.admin_delete_user(auth_user_id_with_email);
         END IF;
         
-        PERFORM auth.admin_update_user_by_id(
+        -- (FIX) Use older 'auth.update_user_by_id' instead of 'auth.admin_update_user_by_id'
+        -- for maximum compatibility with older Supabase projects that may not have the newer function.
+        PERFORM auth.update_user_by_id(
             v_customer_user_id,
             format('{
                 "email": %L,
@@ -526,7 +529,8 @@ BEGIN
         -- CASE B: Customer is NOT linked to an auth user.
         IF auth_user_id_with_email IS NOT NULL THEN
             -- An unlinked auth user already exists. Take it over and mark as customer.
-            PERFORM auth.admin_update_user_by_id(
+            -- (FIX) Use older 'auth.update_user_by_id' for maximum compatibility.
+            PERFORM auth.update_user_by_id(
                 auth_user_id_with_email,
                 format('{
                     "password": %L,
