@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon, UploadIcon } from './Icons';
+import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 import QuantityInput from './QuantityInput';
@@ -42,11 +42,8 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
   const [searchTerm, setSearchTerm] = useState('');
   const [editedQuantities, setEditedQuantities] = useState<Map<string, string>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [isQrLoading, setIsQrLoading] = useState(false);
-
-  const activeCustomers = useMemo(() => customers.filter(c => c.status === 'active'), [customers]);
 
   const allBillDetails = useMemo((): BillDetails[] => {
     if (!billingMonth) return [];
@@ -417,120 +414,6 @@ Thank you for your business!
     downloadCSV(csvContent, `billing_summary_${billingMonth}.csv`);
   };
 
-  const handleDownloadTemplate = () => {
-    if (!billingMonth) {
-        alert("Please select a month first.");
-        return;
-    }
-
-    const [year, month] = billingMonth.split('-').map(Number);
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const headers = ['Customer Name', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))];
-
-    const rows = activeCustomers.map(customer => {
-        const row = [customer.name];
-        for (let i = 0; i < daysInMonth; i++) {
-            row.push(String(customer.defaultQuantity));
-        }
-        return row.join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    downloadCSV(csvContent, `delivery_template_${billingMonth}.csv`);
-  };
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !billingMonth) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            // FIX: The `result` of a FileReader can be a string, ArrayBuffer, or null.
-            // A type guard is necessary to ensure we have a string before using string methods.
-            const text = e.target?.result;
-            if (typeof text !== 'string') {
-              alert('Error reading file content or file is empty.');
-              return;
-            }
-
-            const rows = text.split('\n').filter(row => row.trim() !== '');
-            if (rows.length < 2) throw new Error("CSV is empty or has only a header.");
-
-            const header = rows[0].split(',').map(h => h.trim());
-            const customerNameHeader = header[0];
-            if (customerNameHeader.toLowerCase() !== 'customer name') {
-                throw new Error("Invalid template. First column must be 'Customer Name'.");
-            }
-            
-            const customerMapByName = new Map(customers.map(c => [c.name.toLowerCase(), c.id]));
-            const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
-            const notFoundCustomers = new Set<string>();
-            const [year, monthStr] = billingMonth.split('-');
-
-            for (let i = 1; i < rows.length; i++) {
-                const values = rows[i].split(',');
-                const customerName = values[0].trim();
-                const customerId = customerMapByName.get(customerName.toLowerCase());
-
-                if (!customerId) {
-                    notFoundCustomers.add(customerName);
-                    continue;
-                }
-
-                for (let dayIndex = 1; dayIndex < header.length; dayIndex++) {
-                    const day = parseInt(header[dayIndex], 10);
-                    const quantityStr = values[dayIndex]?.trim();
-                    if (!isNaN(day) && quantityStr) {
-                        const quantity = parseFloat(quantityStr);
-                        if (!isNaN(quantity) && quantity > 0) {
-                            const date = `${year}-${monthStr}-${String(day).padStart(2, '0')}`;
-                            deliveriesToUpsert.push({ customerId, date, quantity });
-                        }
-                    }
-                }
-            }
-
-            if (deliveriesToUpsert.length === 0) {
-                alert("No valid delivery data found to import.");
-                return;
-            }
-
-            const { data, error } = await supabase
-                .from('deliveries')
-                .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
-                .select();
-            
-            if (error) throw error;
-            
-            if (data) {
-                setDeliveries(prev => {
-                    const updatedMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
-                    (data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
-                    return Array.from(updatedMap.values());
-                });
-            }
-
-            let alertMessage = `${data?.length || 0} delivery records imported/updated for ${billingMonth}.`;
-            if (notFoundCustomers.size > 0) {
-                alertMessage += `\n\nCould not find the following customers (they were skipped):\n- ${Array.from(notFoundCustomers).join('\n- ')}`;
-            }
-            alert(alertMessage);
-        } catch (error: any) {
-             alert(`Error importing file: ${getFriendlyErrorMessage(error)}`);
-        } finally {
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-        }
-    };
-    reader.readAsText(file);
-  };
-
   const datesOfMonth = useMemo(() => {
     if (!billingMonth) return [];
     const [year, month] = billingMonth.split('-').map(Number);
@@ -638,7 +521,6 @@ Thank you for your business!
 
   return (
     <div>
-      <input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 p-4 bg-white rounded-lg shadow-sm print:hidden">
         <h2 className="text-3xl font-bold text-gray-800">Generate Bills</h2>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
@@ -750,8 +632,6 @@ Thank you for your business!
                 <h3 className="text-xl font-semibold text-gray-800">Monthly Billing Summary</h3>
                 {!isReadOnly && (
                     <div className="flex items-center gap-2 flex-wrap">
-                        <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download Template</button>
-                        <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><UploadIcon className="h-4 w-4 mr-2"/> Import Month's Deliveries</button>
                         <button onClick={handleExportSummary} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Export Summary (CSV)</button>
                         <button onClick={handleDownloadAllPdfs} className="flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors"><DownloadIcon className="h-4 w-4 mr-2"/> Download All Bills (PDF)</button>
                     </div>
@@ -814,7 +694,7 @@ Thank you for your business!
                                     <p className="flex justify-between"><span>Prev. Balance:</span> <span>₹{details.previousBalance.toFixed(2)}</span></p>
                                     <p className="flex justify-between"><span>Current Bill:</span> <span>₹{details.totalAmount.toFixed(2)}</span></p>
                                     <p className="flex justify-between"><span>Paid:</span> <span className="text-green-600">₹{details.totalPaid.toFixed(2)}</span></p>
-                                    <p className={`flex justify-between font-bold text-base mt-2 pt-2 border-t ${details.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    <p className={`flex justify-between font-bold text-base mt-2 pt-2 border-t ${details.balance > 0 ? 'text-red-600' : 'text-gray-600'}`}>
                                         <span>Outstanding:</span> 
                                         <span>₹{details.balance.toFixed(2)}</span>
                                     </p>

@@ -4,6 +4,7 @@ import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icon
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 import QuantityInput from './QuantityInput';
+import Modal from './Modal';
 
 interface DeliveryManagerProps {
   customers: Customer[];
@@ -23,11 +24,80 @@ const downloadCSV = (csvContent: string, filename: string) => {
     document.body.removeChild(link);
 };
 
+interface BulkImportModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onDownloadTemplate: (month: string) => void;
+    onFileImport: (event: React.ChangeEvent<HTMLInputElement>, month: string) => void;
+}
+
+const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onDownloadTemplate, onFileImport }) => {
+    const [importMonth, setImportMonth] = useState(new Date().toISOString().substring(0, 7));
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleUploadClick = () => {
+        if (!importMonth) {
+            alert("Please select a month first.");
+            return;
+        }
+        fileInputRef.current?.click();
+    };
+    
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Bulk Import Monthly Deliveries">
+            <div className="space-y-6">
+                <div>
+                    <h4 className="font-semibold text-gray-800">Step 1: Select Month</h4>
+                    <p className="text-sm text-gray-600">Choose the month you want to import data for.</p>
+                    <input
+                        type="month"
+                        value={importMonth}
+                        onChange={e => setImportMonth(e.target.value)}
+                        className="mt-2 w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                </div>
+                <div>
+                    <h4 className="font-semibold text-gray-800">Step 2: Download & Fill Template</h4>
+                    <p className="text-sm text-gray-600">Download a pre-filled CSV template with your active customers. Edit the file to add the daily delivery quantities.</p>
+                    <button
+                        onClick={() => onDownloadTemplate(importMonth)}
+                        disabled={!importMonth}
+                        className="mt-2 flex items-center px-4 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    >
+                        <DownloadIcon className="h-4 w-4 mr-2"/> Download Template
+                    </button>
+                </div>
+                <div>
+                    <h4 className="font-semibold text-gray-800">Step 3: Upload Completed File</h4>
+                    <p className="text-sm text-gray-600">Once you've filled out the template, upload it here. Existing deliveries for the selected month will be updated.</p>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={(e) => onFileImport(e, importMonth)}
+                        className="hidden"
+                        accept=".csv"
+                    />
+                    <button
+                        onClick={handleUploadClick}
+                        disabled={!importMonth}
+                        className="mt-2 flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    >
+                        <UploadIcon className="h-4 w-4 mr-2"/> Upload File
+                    </button>
+                </div>
+                 <div className="flex justify-end pt-4 border-t">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
 const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries }) => {
   // Common state
   const [isSaving, setIsSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   
   // View mode state
   const [mode, setMode] = useState<'daily' | 'monthly'>('daily');
@@ -248,75 +318,121 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     }
   };
 
-  // --- Common Logic & Render ---
-  const handleExport = () => {
-    const customerMap = new Map(customers.map(c => [c.id, c.name]));
-    const headers = ['customerName', 'date', 'quantity'];
-    const csvRows = [headers.join(','), ...deliveries.map(d => [customerMap.get(d.customerId) || 'Unknown Customer', d.date, d.quantity].join(','))];
-    downloadCSV(csvRows.join('\n'), 'deliveries.csv');
-  };
-  
-  const handleDownloadTemplate = () => {
-    const content = 'customerName,date,quantity\nJohn Doe,2024-07-25,1.5';
-    downloadCSV(content, 'delivery_template.csv');
+  // --- Import/Export Logic ---
+  const handleDownloadTemplate = (month: string) => {
+    if (!month) {
+        alert("Please select a month first.");
+        return;
+    }
+
+    const [year, monthNum] = month.split('-').map(Number);
+    const daysInMonth = new Date(year, monthNum, 0).getDate();
+    const headers = ['Customer Name', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))];
+
+    const rows = activeCustomers.map(customer => {
+        const row = [customer.name];
+        for (let i = 0; i < daysInMonth; i++) {
+            row.push(String(customer.defaultQuantity));
+        }
+        return row.join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    downloadCSV(csvContent, `delivery_template_${month}.csv`);
   };
 
-  const handleImportClick = () => { fileInputRef.current?.click(); };
-
-  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>, month: string) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !month) return;
+
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // FIX: The `result` of a FileReader can be a string, ArrayBuffer, or null.
-            // A type guard is necessary to ensure we have a string before using string methods.
             const text = e.target?.result;
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
             }
+
             const rows = text.split('\n').filter(row => row.trim() !== '');
-            if (rows.length < 2) { alert("CSV file is empty or contains only a header."); return; }
+            if (rows.length < 2) throw new Error("CSV is empty or has only a header.");
+
             const header = rows[0].split(',').map(h => h.trim());
-            const requiredHeaders = ['customerName', 'date', 'quantity'];
-            if (!requiredHeaders.every(h => header.includes(h))) { alert(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`); return; }
+            const customerNameHeader = header[0];
+            if (customerNameHeader.toLowerCase() !== 'customer name') {
+                throw new Error("Invalid template. First column must be 'Customer Name'.");
+            }
+            
             const customerMapByName = new Map(customers.map(c => [c.name.toLowerCase(), c.id]));
             const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
             const notFoundCustomers = new Set<string>();
-            rows.slice(1).forEach(row => {
-                const values = row.split(',');
-                const customerName = values[header.indexOf('customerName')].trim();
+            const [year, monthStr] = month.split('-');
+
+            for (let i = 1; i < rows.length; i++) {
+                const values = rows[i].split(',');
+                const customerName = values[0].trim();
                 const customerId = customerMapByName.get(customerName.toLowerCase());
-                if (customerId) {
-                    const date = values[header.indexOf('date')].trim();
-                    const quantity = parseFloat(values[header.indexOf('quantity')]);
-                    if (!isNaN(quantity)) { deliveriesToUpsert.push({ customerId, date, quantity }); }
-                } else {
+
+                if (!customerId) {
                     notFoundCustomers.add(customerName);
+                    continue;
                 }
-            });
-            if (deliveriesToUpsert.length > 0) {
-                 const { data, error } = await supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select();
-                if (error) throw error;
-                if (data) {
-                    setDeliveries(prev => {
-                        const updatedDeliveriesMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
-                        (data as Delivery[]).forEach((d) => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); });
-                        return Array.from(updatedDeliveriesMap.values());
-                    });
+
+                for (let dayIndex = 1; dayIndex < header.length; dayIndex++) {
+                    const day = parseInt(header[dayIndex], 10);
+                    const quantityStr = values[dayIndex]?.trim();
+                    if (!isNaN(day) && quantityStr) {
+                        const quantity = parseFloat(quantityStr);
+                        if (!isNaN(quantity) && quantity > 0) {
+                            const date = `${year}-${monthStr}-${String(day).padStart(2, '0')}`;
+                            deliveriesToUpsert.push({ customerId, date, quantity });
+                        }
+                    }
                 }
             }
-            let alertMessage = `${deliveriesToUpsert.length} delivery records processed.`;
-            if (notFoundCustomers.size > 0) { alertMessage += `\nCould not find the following customers: ${Array.from(notFoundCustomers).join(', ')}`; }
+
+            if (deliveriesToUpsert.length === 0) {
+                alert("No valid delivery data found to import.");
+                return;
+            }
+
+            const { data, error } = await supabase
+                .from('deliveries')
+                .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
+                .select();
+            
+            if (error) throw error;
+            
+            if (data) {
+                setDeliveries(prev => {
+                    const updatedMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
+                    (data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
+                    return Array.from(updatedMap.values());
+                });
+            }
+
+            let alertMessage = `${data?.length || 0} delivery records imported/updated for ${month}.`;
+            if (notFoundCustomers.size > 0) {
+                alertMessage += `\n\nCould not find the following customers (they were skipped):\n- ${Array.from(notFoundCustomers).join('\n- ')}`;
+            }
             alert(alertMessage);
+            setIsImportModalOpen(false);
         } catch (error: any) {
-            alert("An error occurred while importing the file. " + getFriendlyErrorMessage(error));
+             alert(`Error importing file: ${getFriendlyErrorMessage(error)}`);
         } finally {
-            if (fileInputRef.current) { fileInputRef.current.value = ''; }
+            if (event.target) {
+                event.target.value = '';
+            }
         }
     };
     reader.readAsText(file);
+  };
+  
+  const handleExport = () => {
+    const customerMap = new Map(customers.map(c => [c.id, c.name]));
+    const headers = ['customerName', 'date', 'quantity'];
+    const csvRows = [headers.join(','), ...deliveries.map(d => [customerMap.get(d.customerId) || 'Unknown Customer', d.date, d.quantity].join(','))];
+    downloadCSV(csvRows.join('\n'), 'all_deliveries.csv');
   };
   
   const totalPendingChanges = mode === 'daily' ? pendingChanges.size : monthlyPendingChanges.size;
@@ -326,6 +442,17 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     <div>
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-gray-800">Manage Deliveries</h2>
+        <div className="flex items-center gap-2">
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                <UploadIcon className="h-4 w-4 mr-2"/> Bulk Import from CSV
+            </button>
+            <button onClick={handleExport} className="flex items-center px-4 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                <DownloadIcon className="h-4 w-4 mr-2"/> Export All Deliveries
+            </button>
+        </div>
+      </div>
+      
+      <div className="flex justify-center mb-6">
         <div className="flex items-center p-1 bg-gray-200 rounded-lg">
           <button onClick={() => setMode('daily')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === 'daily' ? 'bg-white text-blue-600 shadow' : 'text-gray-600'}`}>Daily View</button>
           <button onClick={() => setMode('monthly')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-600'}`}>Single Customer (Monthly)</button>
@@ -462,6 +589,12 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             </div>
         </div>
       )}
+      <BulkImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onDownloadTemplate={handleDownloadTemplate}
+        onFileImport={handleFileImport}
+      />
     </div>
   );
 };
