@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { MenuIcon, XIcon } from './Icons';
+import { MenuIcon, XIcon, WhatsAppIcon } from './Icons';
 import type { Page } from '../App';
+import EnquiryModal from './EnquiryModal';
 
 interface SharedLayoutProps {
     children: React.ReactNode;
@@ -10,6 +11,7 @@ interface SharedLayoutProps {
 
 const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onNavigate }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isEnquiryModalOpen, setIsEnquiryModalOpen] = useState(false);
     
     const handleNavClick = (page: 'home' | 'products', sectionId?: string) => {
         setIsMenuOpen(false);
@@ -78,6 +80,21 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
             </header>
             
             {children}
+
+            {/* Floating WhatsApp Enquiry Button */}
+            <button
+                onClick={() => setIsEnquiryModalOpen(true)}
+                className="fixed bottom-6 right-6 bg-green-500 text-white p-4 rounded-full shadow-lg hover:bg-green-600 transition-transform transform hover:scale-110 z-40"
+                aria-label="Send an enquiry on WhatsApp"
+            >
+                <WhatsAppIcon className="h-8 w-8" />
+            </button>
+            
+            {/* Enquiry Modal */}
+            <EnquiryModal
+                isOpen={isEnquiryModalOpen}
+                onClose={() => setIsEnquiryModalOpen(false)}
+            />
             
             <footer className="bg-gray-800 text-white">
                 <div className="container mx-auto px-6 py-10">
@@ -107,7 +124,7 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     </div>
                 </div>
                 <div className="border-t border-gray-700 mt-8 pt-6 text-center text-gray-500">
-                    <p>&copy; {new Date().getFullYear()} ssfarmorganic. All rights reserved.</p>
+                    <p>&copy; {new Date().getFullYear()} ssfarmorganic. All rights reserved 2025.</p>
                 </div>
                 </div>
             </footer>
