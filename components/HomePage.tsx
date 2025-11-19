@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
 // Fix: Removed MilkIcon as it does not exist in './Icons'. Also removed other unused icons.
@@ -72,8 +73,8 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
                 {content.heroSlides.map((slide, index) => (
                     <div 
                         key={index} 
-                        className="w-full flex-shrink-0 h-full bg-cover bg-center relative"
-                        style={{ backgroundImage: `url(${slide.image})` }}
+                        className="w-full flex-shrink-0 h-full bg-cover bg-center relative bg-gray-900"
+                        style={{ backgroundImage: slide.image ? `url(${slide.image})` : 'none' }}
                     >
                         <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center text-center p-4">
                             <div className="container mx-auto px-6">

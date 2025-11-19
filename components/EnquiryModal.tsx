@@ -60,7 +60,7 @@ const EnquiryModal: React.FC<EnquiryModalProps> = ({ isOpen, onClose }) => {
             .filter(([, isSelected]) => isSelected)
             .map(([productKey]) => {
                 const key = productKey as keyof typeof products;
-                const productName = key.charAt(0).toUpperCase() + key.slice(1);
+                const productName = productKey.charAt(0).toUpperCase() + productKey.slice(1);
                 const quantity = quantities[key];
                 const unit = key === 'paneer' ? 'Kg' : 'L';
                 return `- ${productName} Milk: ${quantity} ${unit}`;
@@ -127,28 +127,28 @@ ${selectedProductsList}
                     {errors.products && <p className="mt-1 text-xs text-red-600">{errors.products}</p>}
                     <div className="mt-2 space-y-3">
                         {productOptions.map(({ key, label, unit }) => (
-                             <div key={key} className="flex items-center gap-4 p-2 rounded-md border border-gray-200">
+                             <div key={String(key)} className="flex items-center gap-4 p-2 rounded-md border border-gray-200">
                                 <div className="flex items-center flex-shrink-0">
                                     <input
-                                        id={key}
+                                        id={String(key)}
                                         type="checkbox"
                                         checked={products[key]}
                                         onChange={() => handleProductChange(key)}
                                         className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                     />
-                                    <label htmlFor={key} className="ml-2 block text-sm font-medium text-gray-800">{label}</label>
+                                    <label htmlFor={String(key)} className="ml-2 block text-sm font-medium text-gray-800">{label}</label>
                                 </div>
                                 {products[key] && (
                                     <div className="flex items-center gap-2 flex-grow">
-                                        <label htmlFor={`quantity_${key}`} className="text-sm text-gray-600">Qty ({unit}):</label>
+                                        <label htmlFor={`quantity_${String(key)}`} className="text-sm text-gray-600">Qty ({unit}):</label>
                                         <input
-                                            id={`quantity_${key}`}
+                                            id={`quantity_${String(key)}`}
                                             type="number"
                                             step={key === 'paneer' ? "0.25" : "0.5"}
                                             min="0"
                                             value={quantities[key]}
                                             onChange={e => setQuantities(prev => ({ ...prev, [key]: e.target.value }))}
-                                            className={`block w-full border ${errors[`quantity_${key}`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-1 px-2 text-sm`}
+                                            className={`block w-full border ${errors[`quantity_${String(key)}`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-1 px-2 text-sm`}
                                         />
                                     </div>
                                 )}

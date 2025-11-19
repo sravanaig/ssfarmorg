@@ -348,7 +348,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const text = e.target?.result;
+            const text = reader.result;
             if (typeof text !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
@@ -429,9 +429,14 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   };
   
   const handleExport = () => {
-    const customerMap = new Map(customers.map(c => [c.id, c.name]));
+    // Explicitly type the Map and cast the array map return to correct tuple type for Map constructor
+    const customerMap = new Map<string, string>(customers.map(c => [c.id, c.name] as [string, string]));
     const headers = ['customerName', 'date', 'quantity'];
-    const csvRows = [headers.join(','), ...deliveries.map(d => [customerMap.get(d.customerId) || 'Unknown Customer', d.date, d.quantity].join(','))];
+    // Use string template literal to construct rows, avoiding join type issues with mixed number/string
+    const csvRows = [
+        headers.join(','),
+        ...deliveries.map(d => `${customerMap.get(d.customerId) || 'Unknown Customer'},${d.date},${d.quantity}`)
+    ];
     downloadCSV(csvRows.join('\n'), 'all_deliveries.csv');
   };
   

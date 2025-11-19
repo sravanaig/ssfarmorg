@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
 import { supabase } from '../lib/supabaseClient';
@@ -80,10 +82,14 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error("Not authenticated");
 
+            // Change: Use upsert to ensure a row is created for the current user if it doesn't exist.
+            // This fixes the issue where updates fail silently if the content was originally created by a different user.
             const { error } = await supabase
                 .from('website_content')
-                .update({ content: formData })
-                .eq('userId', user.id);
+                .upsert({ 
+                    userId: user.id,
+                    content: formData 
+                }, { onConflict: 'userId' });
 
             if (error) throw error;
             
@@ -106,7 +112,7 @@ const CmsManager: React.FC<CmsManagerProps> = ({ content, setContent }) => {
     
             switch (section) {
                 case 'heroSlides':
-                    newState.heroSlides.push({ title: "New Slide", subtitle: "A great new feature.", image: "https://images.unsplash.com/photo-1570913149827-d2ac84ab3f9a?q=80&w=2070&auto=format&fit=crop" });
+                    newState.heroSlides.push({ title: "New Slide", subtitle: "A great new feature.", image: "" });
                     break;
                 case 'productsPage':
                     newState.productsPage.products.push({ name: "New Product", description: "Describe the new product.", benefits: ["New benefit"], image: "https://images.unsplash.com/photo-1559598467-f8b76c8155d0?q=80&w=1974&auto=format&fit=crop" });

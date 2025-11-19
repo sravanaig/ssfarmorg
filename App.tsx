@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -28,11 +29,11 @@ export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
   heroSlides: [
-    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1620189507195-68309c04c4d5?q=80&w=2070&auto=format&fit=crop" },
-    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1495107333503-a287c29515a3?q=80&w=2070&auto=format&fit=crop" },
-    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1628268812585-1122394c6538?q=80&w=1974&auto=format&fit=crop" },
-    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" },
-    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1567523913054-486018a1a312?q=80&w=2070&auto=format&fit=crop" }
+    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "" },
+    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "" },
+    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "" },
+    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "" },
+    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "" }
   ],
   ourStory: {
     title: "Our Journey to Pure Milk",
@@ -74,8 +75,8 @@ const defaultContent: WebsiteContent = {
     title: "Meet Our Founders",
     subtitle: "The minds and hearts behind your daily freshness.",
     list: [
-      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table.", image: "https://raw.githubusercontent.com/sravanaig/images/main/images/sravan.jpeg" },
-      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended.", image: "https://raw.githubusercontent.com/sravanaig/images/main/images/sudhakar.jpg" }
+      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table.", image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=400&auto=format&fit=crop" },
+      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended.", image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400&auto=format&fit=crop" }
     ]
   },
   productsPage: {
@@ -134,6 +135,7 @@ const App: React.FC = () => {
         const { data: contentRows, error: contentError } = await supabase
             .from('website_content')
             .select('content')
+            .order('id', { ascending: false })
             .limit(1);
 
         if (contentError) throw contentError;
@@ -148,11 +150,11 @@ const App: React.FC = () => {
                 console.error("Fetched website content is malformed. Falling back to default.", contentData.content);
              }
             setFetchError('SCHEMA_MISMATCH: Your website content is not visible to the public. Please log in to create it, or run the updated database setup script to fix visibility.');
-            setWebsiteContent(prev => prev || defaultContent);
+            setWebsiteContent(defaultContent);
         }
     } catch (error: any) {
         console.error('Error fetching public website content:', error.message || error);
-        setWebsiteContent(prev => prev || defaultContent);
+        setWebsiteContent(defaultContent);
     }
   };
 
@@ -300,7 +302,13 @@ const App: React.FC = () => {
                 fetchAll<PendingDelivery>('pending_deliveries')
             ]);
             
-            const { data: contentData, error: contentError } = await supabase.from('website_content').select('content').single();
+            const { data: contentRows, error: contentError } = await supabase
+                .from('website_content')
+                .select('content')
+                .order('id', { ascending: false })
+                .limit(1);
+            
+            const contentData = contentRows?.[0];
     
             setCustomers(customersData || []);
             setDeliveries(deliveriesData || []);
@@ -308,7 +316,7 @@ const App: React.FC = () => {
             setPayments(paymentsData || []);
             setPendingDeliveries(pendingDeliveriesData || []);
     
-            if (contentError && contentError.code !== 'PGRST116') {
+            if (contentError) {
                  throw contentError;
             }
     
@@ -357,19 +365,18 @@ const App: React.FC = () => {
     } catch (error: any) {
         console.error('Error fetching data:', error);
         const friendlyMessage = getFriendlyErrorMessage(error);
-        const lowerCaseMsg = friendlyMessage.toLowerCase();
-
+        const msg = (error.message || '').toLowerCase();
         if (
-            lowerCaseMsg.includes('relation "public.profiles" does not exist') ||
-            (lowerCaseMsg.includes('column') && lowerCaseMsg.includes('does not exist')) ||
-            (lowerCaseMsg.includes('relation') && lowerCaseMsg.includes('does not exist')) ||
-            lowerCaseMsg.includes('could not find the table') ||
-            lowerCaseMsg.includes('in the schema cache') ||
-            lowerCaseMsg.includes('privileges') ||
-            lowerCaseMsg.includes('infinite recursion detected') ||
-            lowerCaseMsg.includes('structure of query does not match')
+            msg.includes('relation "public.profiles" does not exist') ||
+            (msg.includes('column') && msg.includes('does not exist')) ||
+            (msg.includes('relation') && msg.includes('does not exist')) ||
+            msg.includes('could not find the table') ||
+            msg.includes('in the schema cache') ||
+            msg.includes('privileges') ||
+            msg.includes('infinite recursion detected') ||
+            msg.includes('structure of query does not match')
         ) {
-             setFetchError(`SCHEMA_MISMATCH: A critical database error occurred, likely due to an outdated schema. Please use the Database Helper tool to apply the latest setup script.`);
+             setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
         } else {
             setFetchError(`Error loading data. ${friendlyMessage}`);
         }

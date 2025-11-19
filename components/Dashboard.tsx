@@ -231,8 +231,10 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 plugins: {
                     legend: { position: 'right' },
                     tooltip: { callbacks: { label: (c: any) => {
-                        const value = typeof c.raw === 'number' ? c.raw.toFixed(2) : '0.00';
-                        const label = typeof c.label === 'string' ? c.label : '';
+                        const raw = c.raw;
+                        const labelVal = c.label;
+                        const value = typeof raw === 'number' ? raw.toFixed(2) : '0.00';
+                        const label = typeof labelVal === 'string' ? labelVal : '';
                         return `${label}: ${value} L`;
                     } } },
                 },
