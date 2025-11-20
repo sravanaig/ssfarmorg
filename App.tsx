@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -29,11 +28,11 @@ export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
   heroSlides: [
-    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "" },
-    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "" },
-    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "" },
-    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "" },
-    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "" }
+    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1620189507195-68309c04c4d5?q=80&w=2070&auto=format&fit=crop" },
+    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1495107333503-a287c29515a3?q=80&w=2070&auto=format&fit=crop" },
+    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1628268812585-1122394c6538?q=80&w=1974&auto=format&fit=crop" },
+    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" },
+    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1567523913054-486018a1a312?q=80&w=2070&auto=format&fit=crop" }
   ],
   ourStory: {
     title: "Our Journey to Pure Milk",
@@ -115,6 +114,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [userRole, setUserRole] = useState<Profile['role'] | 'customer' | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   
   const [view, setView] = useState<View>('dashboard');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -153,7 +153,7 @@ const App: React.FC = () => {
             setWebsiteContent(defaultContent);
         }
     } catch (error: any) {
-        console.error('Error fetching public website content:', error.message || error);
+        console.error('Error fetching public content:', error);
         setWebsiteContent(defaultContent);
     }
   };
@@ -190,7 +190,6 @@ const App: React.FC = () => {
       } catch (error: any) {
         const msg = (error.message || '').toLowerCase();
         const isBalanceColumnError = msg.includes('balanceasofdate') || msg.includes('previousbalance');
-        // Catches both "column ... does not exist" and "could not find ... in the schema cache"
         const isColumnMissingError = msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find'));
 
         if (isBalanceColumnError && isColumnMissingError) {
@@ -234,6 +233,7 @@ const App: React.FC = () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
             setUserRole(null);
+            setUserEmail(null);
             setCustomers([]);
             setDeliveries([]);
             setOrders([]);
@@ -244,18 +244,21 @@ const App: React.FC = () => {
             await fetchPublicContent();
             return;
         }
+        
+        setUserEmail(user.email || null);
 
+        // --- PRIORITY 1: Check for Admin/Staff Profile ---
         const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('role, status')
             .eq('id', user.id)
             .single();
         
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
+        if (profileError && profileError.code !== 'PGRST116') { 
             throw profileError;
         }
 
-        if (profileData) { // User is admin or staff
+        if (profileData) { 
             const role = profileData.role as Profile['role'];
             setUserRole(role);
     
@@ -283,7 +286,9 @@ const App: React.FC = () => {
                 return;
             }
             
-            // Admin data fetch continues here...
+            // Admin / Super Admin data fetch
+            // IMPORTANT: If the DB schema for get_all_users is outdated (missing super_admin support), this RPC might fail.
+            // App.tsx must handle this error gracefully to allow the user to fix the DB.
             const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
             if (usersError) throw usersError;
             setManagedUsers((usersData as ManagedUser[]) || []);
@@ -316,9 +321,7 @@ const App: React.FC = () => {
             setPayments(paymentsData || []);
             setPendingDeliveries(pendingDeliveriesData || []);
     
-            if (contentError) {
-                 throw contentError;
-            }
+            if (contentError) throw contentError;
     
             if (contentData) {
                 setWebsiteContent(contentData.content as WebsiteContent);
@@ -334,34 +337,70 @@ const App: React.FC = () => {
                     setWebsiteContent(seededContent.content as WebsiteContent);
                 }
             }
-        } else { // User might be a customer
-            const { data: customerData, error: customerError } = await supabase
-                .from('customers')
-                .select('*')
-                .eq('userId', user.id)
-                .single();
-
-            if (customerError && customerError.code !== 'PGRST116') {
-                throw customerError;
-            }
-
-            if(customerData) {
-                setUserRole('customer');
-                setCustomerProfile(customerData as Customer);
-                // RLS will ensure only their data is fetched
-                const [deliveriesData, paymentsData] = await Promise.all([
-                    fetchAll<Delivery>('deliveries'),
-                    fetchAll<Payment>('payments')
-                ]);
-                setDeliveries(deliveriesData || []);
-                setPayments(paymentsData || []);
-                await fetchPublicContent();
-            } else {
-                // Not an admin, staff, or linked customer. Log them out.
-                 await supabase.auth.signOut();
-                 setFetchError("Your user account is not associated with an admin, staff, or customer profile. Please contact support.");
-            }
+            // Successfully loaded admin/super_admin data
+            return; 
         }
+
+        // --- PRIORITY 2: Check for Customer Record ---
+        let { data: customerData, error: customerError } = await supabase
+            .from('customers')
+            .select('*')
+            .eq('userId', user.id)
+            .single();
+
+        // --- SELF HEALING: If customer login is detected but link is missing ---
+        if (!customerData && user.email?.endsWith('@ssfarmorganic.local')) {
+             const phoneFromEmail = user.email.split('@')[0];
+             if (/^\d+$/.test(phoneFromEmail)) {
+                 console.log("Attempting to heal customer link for", phoneFromEmail);
+                 try {
+                    const { error: linkError } = await supabase.rpc('link_customer_to_auth_user', { p_phone: phoneFromEmail });
+                    
+                    if (!linkError) {
+                        // Retry fetching the customer data
+                        const retryResult = await supabase
+                            .from('customers')
+                            .select('*')
+                            .eq('userId', user.id)
+                            .single();
+                        
+                        if (retryResult.data) {
+                            customerData = retryResult.data;
+                            customerError = null;
+                            console.log("Successfully relinked customer.");
+                        }
+                    } else {
+                         console.warn("Self-healing RPC failed:", linkError);
+                    }
+                 } catch (healError) {
+                     console.warn("Self-healing process encountered an error:", healError);
+                 }
+             }
+        }
+
+        if (customerError && customerError.code !== 'PGRST116') {
+            throw customerError;
+        }
+
+        if (customerData) {
+            setUserRole('customer');
+            setCustomerProfile(customerData as Customer);
+            // RLS will ensure only their data is fetched
+            const [deliveriesData, paymentsData] = await Promise.all([
+                fetchAll<Delivery>('deliveries'),
+                fetchAll<Payment>('payments')
+            ]);
+            setDeliveries(deliveriesData || []);
+            setPayments(paymentsData || []);
+            await fetchPublicContent();
+            return; 
+        }
+
+        // --- ERROR CASE: Authenticated but no role found ---
+        console.warn("User authenticated but no profile or customer record found.");
+        setFetchError(`Account setup incomplete. We could not find a customer record for ${user.email?.split('@')[0] || 'this account'}. Please contact support.`);
+        setIsLoading(false);
+        
     } catch (error: any) {
         console.error('Error fetching data:', error);
         const friendlyMessage = getFriendlyErrorMessage(error);
@@ -373,12 +412,17 @@ const App: React.FC = () => {
             msg.includes('could not find the table') ||
             msg.includes('in the schema cache') ||
             msg.includes('privileges') ||
+            msg.includes('access denied') ||
             msg.includes('infinite recursion detected') ||
             msg.includes('structure of query does not match')
         ) {
-             setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
+             // Use string conversion to avoid [object Object] in template literal
+             const safeErrorMessage = typeof error.message === 'string' ? error.message : friendlyMessage;
+             const finalMsg = typeof safeErrorMessage === 'object' ? JSON.stringify(safeErrorMessage) : safeErrorMessage;
+             setFetchError(`SCHEMA_MISMATCH: ${finalMsg}`);
         } else {
-            setFetchError(`Error loading data. ${friendlyMessage}`);
+             const finalMsg = typeof friendlyMessage === 'object' ? JSON.stringify(friendlyMessage) : friendlyMessage;
+            setFetchError(`Error loading data. ${finalMsg}`);
         }
     }
   }, []);
@@ -414,6 +458,7 @@ const App: React.FC = () => {
       } else {
         setIsAuthenticated(false);
         setUserRole(null);
+        setUserEmail(null);
         setCustomers([]);
         setDeliveries([]);
         setOrders([]);
@@ -514,7 +559,7 @@ const App: React.FC = () => {
                     </button>
                     <h1 className="text-2xl font-bold text-gray-800 capitalize hidden md:block">{view.replace(/_/g, ' ')}</h1>
                      <div className="flex items-center">
-                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && userRole === 'admin' && (
+                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
                             <button onClick={() => setView('database')} className="mr-4 px-3 py-1.5 text-xs bg-red-100 text-red-700 border border-red-200 rounded-md hover:bg-red-200 font-semibold">
                                 DB Error! Fix Now
                             </button>
@@ -527,20 +572,27 @@ const App: React.FC = () => {
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && userRole === 'admin' ? (
+                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') ? (
                       <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
                     ) : fetchError ? (
                       <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
                         <p className="font-bold">Error</p>
                         <p>{fetchError}</p>
+                        {fetchError.includes('privileges') && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
+                             <div className="mt-2">
+                                <button onClick={() => setView('database')} className="underline font-bold hover:text-red-900">
+                                    Click here to open Database Repair Tool
+                                </button>
+                             </div>
+                        )}
                       </div>
                     ) : (
                         <>
                             {/* Admin-only views */}
-                            {userRole === 'admin' && (
+                            {(userRole === 'admin' || userRole === 'super_admin') && (
                                 <>
                                     {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
-                                    {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
+                                    {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} currentUserRole={userRole} />}
                                     {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
                                     {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
                                     {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
@@ -550,12 +602,12 @@ const App: React.FC = () => {
                             )}
                             
                             {/* Shared views */}
-                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} />}
+                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}
-                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && (userRole === 'admin' || userRole === 'super_admin') && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
                             {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}

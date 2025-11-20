@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import type { ManagedUser } from '../types';
+import type { ManagedUser, Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { TrashIcon, PlusIcon, SpinnerIcon } from './Icons';
 import Modal from './Modal';
@@ -8,13 +9,15 @@ import { getFriendlyErrorMessage } from '../lib/errorHandler';
 interface UserManagerProps {
   users: ManagedUser[];
   setUsers: React.Dispatch<React.SetStateAction<ManagedUser[]>>;
+  currentUserRole: Profile['role'] | 'customer' | null;
 }
 
 const UserForm: React.FC<{
     onSubmit: (user: Omit<ManagedUser, 'id' | 'created_at' | 'status'> & { password?: string }) => Promise<void>;
     onClose: () => void;
     isCreating: boolean;
-}> = ({ onSubmit, onClose, isCreating }) => {
+    canCreateAdmins: boolean;
+}> = ({ onSubmit, onClose, isCreating, canCreateAdmins }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [role, setRole] = useState<'admin' | 'staff'>('staff');
@@ -32,7 +35,8 @@ const UserForm: React.FC<{
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            await onSubmit({ email, password, role });
+            // @ts-ignore - casting role string to valid type
+            await onSubmit({ email, password, role: role as any });
         }
     };
 
@@ -52,8 +56,9 @@ const UserForm: React.FC<{
                 <label className="block text-sm font-medium text-gray-700">Role</label>
                 <select value={role} onChange={e => setRole(e.target.value as 'admin' | 'staff')} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                     <option value="staff">Staff</option>
-                    <option value="admin">Admin</option>
+                    {canCreateAdmins && <option value="admin">Admin</option>}
                 </select>
+                {!canCreateAdmins && <p className="text-xs text-gray-500 mt-1">Only Super Admins can create Admin accounts.</p>}
             </div>
             <div className="flex justify-end pt-4 space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
@@ -65,21 +70,27 @@ const UserForm: React.FC<{
     );
 };
 
-const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
+const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserRole }) => {
     const [isUpdating, setIsUpdating] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
+    const canManageAdmins = currentUserRole === 'super_admin';
+
     const handleRoleChange = async (userId: string, newRole: 'admin' | 'staff') => {
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (currentUser?.id === userId && newRole !== 'admin') {
-            alert("For security, you cannot change your own role from 'admin'. Another admin must perform this action.");
+        if (!canManageAdmins && newRole === 'admin') {
+            alert("Only Super Admins can promote users to Admin.");
             return;
+        }
+        
+        // Don't need to check self-demotion here as logic is in DB function, but good for UX
+        if (currentUserRole === 'admin' && newRole === 'admin') {
+             alert("You cannot modify Admin roles.");
+             return;
         }
 
         setIsUpdating(userId);
         try {
-            // Fix: Use a secure RPC call to update roles, bypassing RLS issues.
             const { error } = await supabase.rpc('admin_update_user_role', {
                 target_user_id: userId,
                 new_role: newRole
@@ -147,7 +158,12 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
         }
     };
 
-    const handleDeleteUser = async (userId: string, userEmail: string) => {
+    const handleDeleteUser = async (userId: string, userEmail: string, role: string) => {
+        if (!canManageAdmins && role === 'admin') {
+            alert("Only Super Admins can delete Administrators.");
+            return;
+        }
+
         if (window.confirm(`Are you sure you want to permanently delete the user "${userEmail}"? This action cannot be undone.`)) {
             setIsUpdating(userId);
             try {
@@ -160,7 +176,6 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
             } catch (error: any)
             {
                 alert(`Error deleting user: ${getFriendlyErrorMessage(error)}`);
-                console.error('Deletion error:', error);
             } finally {
                 setIsUpdating(null);
             }
@@ -182,6 +197,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                     onSubmit={handleCreateUser}
                     onClose={() => setIsModalOpen(false)}
                     isCreating={isCreating}
+                    canCreateAdmins={canManageAdmins}
                 />
             </Modal>
 
@@ -209,10 +225,12 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                                                     <select
                                                         value={user.role}
                                                         onChange={(e) => handleRoleChange(user.id, e.target.value as 'admin' | 'staff')}
-                                                        disabled={isUpdating === user.id}
-                                                        className="border border-gray-300 rounded-md shadow-sm py-1 px-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                        disabled={isUpdating === user.id || (!canManageAdmins && user.role === 'admin') || user.role === 'super_admin'}
+                                                        className="border border-gray-300 rounded-md shadow-sm py-1 px-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:text-gray-500"
                                                     >
-                                                        <option value="admin">Admin</option>
+                                                        {user.role === 'super_admin' ? <option value="super_admin">Super Admin</option> : null}
+                                                        {canManageAdmins && <option value="admin">Admin</option>}
+                                                        {user.role === 'admin' && !canManageAdmins && <option value="admin">Admin</option>}
                                                         <option value="staff">Staff</option>
                                                     </select>
                                                 ) : (
@@ -242,13 +260,16 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                                                     <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} title="Reject User" className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
                                                 </div>
                                             ) : (
-                                                <button 
-                                                    onClick={() => handleDeleteUser(user.id, user.email)}
-                                                    className="text-red-600 hover:text-red-800"
-                                                    title="Delete User"
-                                                >
-                                                    <TrashIcon className="w-5 h-5"/>
-                                                </button>
+                                                (user.role !== 'super_admin') && (
+                                                    <button 
+                                                        onClick={() => handleDeleteUser(user.id, user.email, user.role)}
+                                                        className={`text-red-600 hover:text-red-800 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                        title="Delete User"
+                                                        disabled={!canManageAdmins && user.role === 'admin'}
+                                                    >
+                                                        <TrashIcon className="w-5 h-5"/>
+                                                    </button>
+                                                )
                                             )}
                                             </td>
                                         </tr>
@@ -281,10 +302,12 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                                                 <select
                                                     value={user.role}
                                                     onChange={(e) => handleRoleChange(user.id, e.target.value as 'admin' | 'staff')}
-                                                    disabled={isUpdating === user.id}
-                                                    className="border border-gray-300 rounded-md shadow-sm py-1 px-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                    disabled={isUpdating === user.id || (!canManageAdmins && user.role === 'admin') || user.role === 'super_admin'}
+                                                    className="border border-gray-300 rounded-md shadow-sm py-1 px-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100"
                                                 >
-                                                    <option value="admin">Admin</option>
+                                                    {user.role === 'super_admin' ? <option value="super_admin">Super Admin</option> : null}
+                                                    {canManageAdmins && <option value="admin">Admin</option>}
+                                                    {user.role === 'admin' && !canManageAdmins && <option value="admin">Admin</option>}
                                                     <option value="staff">Staff</option>
                                                 </select>
                                             ) : (
@@ -303,12 +326,15 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                                                 <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
                                             </>
                                         ) : (
-                                            <button 
-                                                onClick={() => handleDeleteUser(user.id, user.email)}
-                                                className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
-                                            >
-                                                <TrashIcon className="w-4 h-4 mr-1"/> Delete
-                                            </button>
+                                            (user.role !== 'super_admin') && (
+                                                <button 
+                                                    onClick={() => handleDeleteUser(user.id, user.email, user.role)}
+                                                    disabled={!canManageAdmins && user.role === 'admin'}
+                                                    className={`flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                >
+                                                    <TrashIcon className="w-4 h-4 mr-1"/> Delete
+                                                </button>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -318,7 +344,7 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers }) => {
                 ) : (
                     <div className="text-center py-12 px-6">
                         <h3 className="text-lg font-medium text-gray-700">No Other Users Found</h3>
-                        <p className="mt-1 text-sm text-gray-500">Only the initial admin user exists.</p>
+                        <p className="mt-1 text-sm text-gray-500">Only your account exists.</p>
                     </div>
                 )}
             </div>

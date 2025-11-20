@@ -1,3 +1,4 @@
+
 export interface Customer {
   id: string;
   name: string;
@@ -46,14 +47,14 @@ export interface PendingDelivery {
 
 export interface Profile {
   id: string;
-  role: 'admin' | 'staff';
+  role: 'super_admin' | 'admin' | 'staff';
   status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface ManagedUser {
   id: string;
   email: string;
-  role: 'admin' | 'staff';
+  role: 'super_admin' | 'admin' | 'staff';
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
 }

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Customer, Delivery } from '../types';
 import { UploadIcon, DownloadIcon, GridIcon, ListIcon, SearchIcon } from './Icons';
@@ -145,11 +146,11 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   const handleQuantityChange = (customerId: string, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
     if (newQuantityStr === '') {
-        setPendingChanges(prev => new Map(prev).set(customerId, 0));
+        setPendingChanges(prev => new Map<string, number>(prev).set(customerId, 0));
         return;
     }
     if (isNaN(newQuantity) || newQuantity < 0) return;
-    setPendingChanges(prev => new Map(prev).set(customerId, newQuantity));
+    setPendingChanges(prev => new Map<string, number>(prev).set(customerId, newQuantity));
   };
   
   const getDisplayQuantity = (customerId: string): number | string => {
@@ -196,7 +197,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         
         setDeliveries(prev => {
             const deliveriesAfterDeletion = prev.filter(d => !(d.date === selectedDate && customerIdsToDelete.includes(d.customerId)));
-            const updatedDeliveriesMap = new Map(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            // Explicit typing for Map to avoid inference errors
+            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
             if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
             return Array.from(updatedDeliveriesMap.values());
         });
@@ -261,7 +263,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     if (!/^[0-9]*\.?[0-9]*$/.test(newQuantityStr)) return;
     const newQuantity = newQuantityStr === '' ? 0 : parseFloat(newQuantityStr);
     if (isNaN(newQuantity) || newQuantity < 0) return;
-    setMonthlyPendingChanges(prev => new Map(prev).set(date, newQuantity));
+    setMonthlyPendingChanges(prev => new Map<string, number>(prev).set(date, newQuantity));
   };
   
   const handleSetMonthToDefault = () => {
@@ -305,7 +307,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         
         setDeliveries(prev => {
             const deliveriesAfterDeletion = prev.filter(d => !(d.customerId === selectedMonthlyCustomer && datesToDelete.includes(d.date)));
-            const updatedDeliveriesMap = new Map(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
             if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
             return Array.from(updatedDeliveriesMap.values());
         });
@@ -348,11 +350,12 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const text = reader.result;
-            if (typeof text !== 'string') {
+            const fileContent = e.target?.result;
+            if (typeof fileContent !== 'string') {
               alert('Error reading file content or file is empty.');
               return;
             }
+            const text = fileContent;
 
             const rows = text.split('\n').filter(row => row.trim() !== '');
             if (rows.length < 2) throw new Error("CSV is empty or has only a header.");
@@ -363,7 +366,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 throw new Error("Invalid template. First column must be 'Customer Name'.");
             }
             
-            const customerMapByName = new Map(customers.map(c => [c.name.toLowerCase(), c.id]));
+            // Explicitly type the Map to Map<string, string>
+            const customerMapByName = new Map<string, string>(customers.map(c => [c.name.toLowerCase(), c.id] as [string, string]));
             const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
             const notFoundCustomers = new Set<string>();
             const [year, monthStr] = month.split('-');
@@ -405,7 +409,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             
             if (data) {
                 setDeliveries(prev => {
-                    const updatedMap = new Map(prev.map(d => [`${d.customerId}-${d.date}`, d]));
+                    const updatedMap = new Map<string, Delivery>(prev.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
                     (data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
                     return Array.from(updatedMap.values());
                 });
@@ -429,15 +433,17 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   };
   
   const handleExport = () => {
-    // Explicitly type the Map and cast the array map return to correct tuple type for Map constructor
-    const customerMap = new Map<string, string>(customers.map(c => [c.id, c.name] as [string, string]));
+    const customerMap = new Map<string, string>();
+    customers.forEach(c => customerMap.set(c.id, c.name));
+
     const headers = ['customerName', 'date', 'quantity'];
-    // Use string template literal to construct rows, avoiding join type issues with mixed number/string
-    const csvRows = [
-        headers.join(','),
-        ...deliveries.map(d => `${customerMap.get(d.customerId) || 'Unknown Customer'},${d.date},${d.quantity}`)
-    ];
-    downloadCSV(csvRows.join('\n'), 'all_deliveries.csv');
+    const rows = deliveries.map(d => {
+        const customerName = customerMap.get(d.customerId) || 'Unknown Customer';
+        return `${customerName},${d.date},${d.quantity}`;
+    });
+    
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    downloadCSV(csvContent, 'all_deliveries.csv');
   };
   
   const totalPendingChanges = mode === 'daily' ? pendingChanges.size : monthlyPendingChanges.size;
@@ -530,10 +536,10 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                   <tbody>
                     {filteredActiveCustomers.map(customer => (
                       <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                        <th className="px-6 py-4 font-medium text-gray-900">{customer.name}</th>
+                        <th className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
                         <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
                         <td className="px-6 py-4 text-right">
-                          <QuantityInput
+                           <QuantityInput
                             value={getDisplayQuantity(customer.id)}
                             onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
                             placeholder={String(customer.defaultQuantity)}
@@ -547,55 +553,68 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
               </div>
             )
           ) : (
-            <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md"><h3 className="text-lg font-medium text-gray-700">No Customers Found</h3><p className="mt-1 text-sm text-gray-500">No active customers match your search criteria.</p></div>
+            <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
+              <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+              <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+            </div>
           )
         ) : (
-          selectedMonthlyCustomer && selectedMonth ? (
-            <div className="bg-white shadow-md rounded-lg p-4">
-              <div className="grid grid-cols-7 gap-1 text-center font-semibold text-xs text-gray-500 mb-2">
-                  <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-              </div>
-              <div className="grid grid-cols-7 gap-2">
-                {Array.from({ length: monthStartDay }).map((_, i) => <div key={`empty-${i}`} />)}
-                {datesOfMonth.map(date => {
-                    const day = new Date(date + 'T00:00:00Z').getUTCDate();
-                    const customer = customers.find(c => c.id === selectedMonthlyCustomer);
-                    return (
-                        <div key={date} className="p-2 border rounded-md bg-gray-50 flex flex-col">
-                            <div className="text-sm font-bold text-gray-800 mb-1">{day}</div>
-                            <div className="mt-auto">
-                              <QuantityInput
-                                value={getMonthlyDisplayQuantity(date)}
-                                onChange={(newValue) => handleMonthlyQuantityChange(date, newValue)}
-                                placeholder={customer?.defaultQuantity.toString()}
-                                inputClassName="w-full"
-                              />
-                            </div>
-                        </div>
-                    );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md"><h3 className="text-lg font-medium text-gray-700">Select a Customer and Month</h3><p className="mt-1 text-sm text-gray-500">Choose a customer and a month above to view and edit their deliveries.</p></div>
-          )
+            selectedMonthlyCustomer ? (
+                <div className="bg-white shadow-md rounded-lg overflow-hidden p-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                        {datesOfMonth.map((date) => {
+                             const day = new Date(date + 'T00:00:00Z').getUTCDate();
+                             const qty = getMonthlyDisplayQuantity(date);
+                             return (
+                                 <div key={date} className="border rounded-md p-2 flex flex-col items-center">
+                                     <span className="text-xs font-semibold text-gray-500 mb-1">{new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short' })} {day}</span>
+                                     <input
+                                        type="text"
+                                        value={qty}
+                                        onChange={(e) => handleMonthlyQuantityChange(date, e.target.value)}
+                                        className="w-full text-center border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="-"
+                                     />
+                                 </div>
+                             )
+                        })}
+                    </div>
+                     <div className="mt-6 flex justify-end">
+                        <button
+                            onClick={handleSaveMonthlyChanges}
+                            disabled={isSaving}
+                            className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isSaving ? 'Saving...' : 'Save Monthly Changes'}
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                 <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
+                    <h3 className="text-lg font-medium text-gray-700">Select a Customer</h3>
+                    <p className="mt-1 text-sm text-gray-500">Please select a customer to view their monthly calendar.</p>
+                </div>
+            )
         )}
       </div>
 
-      {totalPendingChanges > 0 && (
+      {mode === 'daily' && pendingChanges.size > 0 && (
         <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
                 <div className="flex justify-between items-center">
-                    <span className="text-gray-700 font-medium">You have {totalPendingChanges} unsaved change{totalPendingChanges > 1 ? 's' : ''}.</span>
-                    <button onClick={mode === 'daily' ? handleSave : handleSaveMonthlyChanges} disabled={isSaving} className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span className="text-gray-700 font-medium">
+                        You have {pendingChanges.size} unsaved change{pendingChanges.size > 1 ? 's' : ''}.
+                    </span>
+                    <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         {saveButtonText}
                     </button>
                 </div>
             </div>
         </div>
       )}
-      <BulkImportModal
-        isOpen={isImportModalOpen}
+
+      <BulkImportModal 
+        isOpen={isImportModalOpen} 
         onClose={() => setIsImportModalOpen(false)}
         onDownloadTemplate={handleDownloadTemplate}
         onFileImport={handleFileImport}

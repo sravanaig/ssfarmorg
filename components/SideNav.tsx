@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
 import type { Profile } from '../types';
@@ -32,27 +33,29 @@ const NavItem: React.FC<{
   </button>
 );
 
-const adminNavItems = [
+// Menu definitions
+const staffItems = [
+    { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
+    { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
+    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> }, // Staff view of deliveries
+    { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
+];
+
+const adminItems = [
     { view: 'dashboard', label: 'Dashboard', icon: <DashboardIcon className="h-5 w-5" /> },
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
     { view: 'logins', label: 'Logins', icon: <UsersIcon className="h-5 w-5" /> },
     { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
-    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> },
-    { view: 'delivery_approvals', label: 'Delivery Approvals', icon: <ApprovalIcon className="h-5 w-5" /> },
+    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> }, // Admin view
+    { view: 'delivery_approvals', label: 'Approvals', icon: <ApprovalIcon className="h-5 w-5" /> },
     { view: 'calendar', label: 'Calendar', icon: <CalendarIcon className="h-5 w-5" /> },
     { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
     { view: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-5 w-5" /> },
 ];
-const adminSystemItems = [
+
+const superAdminSystemItems = [
     { view: 'cms' as View, label: 'Website Content', icon: <PencilIcon className="h-5 w-5" /> },
     { view: 'database' as View, label: 'Database Helper', icon: <DatabaseIcon className="h-5 w-5" /> },
-]
-
-const staffNavItems = [
-    { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
-    { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
-    { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> },
-    { view: 'bills', label: 'Bills', icon: <BillIcon className="h-5 w-5" /> },
 ];
 
 const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen, userRole }) => {
@@ -61,14 +64,16 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
         setOpen(false);
     }
     
-    let navItemsToShow = [];
-    let systemItemsToShow: { view: View; label: string; icon: React.ReactNode; }[] = [];
+    let navItemsToShow: any[] = [];
+    let systemItemsToShow: any[] = [];
 
-    if (userRole === 'admin') {
-        navItemsToShow = adminNavItems;
-        systemItemsToShow = adminSystemItems;
+    if (userRole === 'super_admin') {
+        navItemsToShow = adminItems;
+        systemItemsToShow = superAdminSystemItems;
+    } else if (userRole === 'admin') {
+        navItemsToShow = adminItems;
     } else if (userRole === 'staff') {
-        navItemsToShow = staffNavItems;
+        navItemsToShow = staffItems;
     }
     
   return (
@@ -82,8 +87,14 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
                 <XIcon className="h-6 w-6"/>
             </button>
         </div>
+        
+        <div className="mt-6 mb-2 px-2">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
+                {userRole?.replace('_', ' ')}
+            </span>
+        </div>
       
-      <nav className="mt-10 space-y-2">
+      <nav className="mt-4 space-y-2">
         {navItemsToShow.map(item => (
             <NavItem
                 key={item.view}
@@ -97,6 +108,7 @@ const SideNav: React.FC<SideNavProps> = ({ activeView, setView, isOpen, setOpen,
 
         {systemItemsToShow.length > 0 && (
             <div className="pt-4 mt-4 border-t border-gray-200">
+                <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">System</p>
                 {systemItemsToShow.map(item => (
                     <NavItem
                         key={item.view}

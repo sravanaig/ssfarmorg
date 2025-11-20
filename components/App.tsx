@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -75,8 +77,8 @@ const defaultContent: WebsiteContent = {
     title: "Meet Our Founders",
     subtitle: "The minds and hearts behind your daily freshness.",
     list: [
-      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table." },
-      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended." }
+      { name: "Gillella Sravan Reddy", title: "Co-Founder", bio: "An IT professional turned dairy enthusiast, Sravan is passionate about bringing transparency and quality to your family's table.", image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=400&auto=format&fit=crop" },
+      { name: "Ambala Sudhakar", title: "Co-Founder", bio: "A tech expert with a love for organic living, Sudhakar ensures that every drop of milk is as pure and wholesome as nature intended.", image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400&auto=format&fit=crop" }
     ]
   },
   productsPage: {
@@ -135,6 +137,7 @@ const App: React.FC = () => {
         const { data: contentRows, error: contentError } = await supabase
             .from('website_content')
             .select('content')
+            .order('id', { ascending: false })
             .limit(1);
 
         if (contentError) throw contentError;
@@ -152,7 +155,7 @@ const App: React.FC = () => {
             setWebsiteContent(defaultContent);
         }
     } catch (error: any) {
-        console.error('Error fetching public website content:', error.message || error);
+        console.error('Error fetching public content:', error);
         setWebsiteContent(defaultContent);
     }
   };
@@ -189,7 +192,6 @@ const App: React.FC = () => {
       } catch (error: any) {
         const msg = (error.message || '').toLowerCase();
         const isBalanceColumnError = msg.includes('balanceasofdate') || msg.includes('previousbalance');
-        // Catches both "column ... does not exist" and "could not find ... in the schema cache"
         const isColumnMissingError = msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find'));
 
         if (isBalanceColumnError && isColumnMissingError) {
@@ -244,17 +246,73 @@ const App: React.FC = () => {
             return;
         }
 
+        // --- PRIORITY 1: Check for Customer Record First ---
+        let { data: customerData, error: customerError } = await supabase
+            .from('customers')
+            .select('*')
+            .eq('userId', user.id)
+            .single();
+
+        // --- SELF HEALING: If customer login is detected but link is missing ---
+        if (!customerData && user.email?.endsWith('@ssfarmorganic.local')) {
+             const phoneFromEmail = user.email.split('@')[0];
+             if (/^\d+$/.test(phoneFromEmail)) {
+                 console.log("Attempting to heal customer link for", phoneFromEmail);
+                 try {
+                    const { error: linkError } = await supabase.rpc('link_customer_to_auth_user', { p_phone: phoneFromEmail });
+                    
+                    if (!linkError) {
+                        // Retry fetching the customer data
+                        const retryResult = await supabase
+                            .from('customers')
+                            .select('*')
+                            .eq('userId', user.id)
+                            .single();
+                        
+                        if (retryResult.data) {
+                            customerData = retryResult.data;
+                            customerError = null;
+                            console.log("Successfully relinked customer.");
+                        }
+                    } else {
+                         console.warn("Self-healing RPC failed:", linkError);
+                    }
+                 } catch (healError) {
+                     console.warn("Self-healing process encountered an error:", healError);
+                 }
+             }
+        }
+
+        if (customerError && customerError.code !== 'PGRST116') {
+            throw customerError;
+        }
+
+        if (customerData) {
+            setUserRole('customer');
+            setCustomerProfile(customerData as Customer);
+            // RLS will ensure only their data is fetched
+            const [deliveriesData, paymentsData] = await Promise.all([
+                fetchAll<Delivery>('deliveries'),
+                fetchAll<Payment>('payments')
+            ]);
+            setDeliveries(deliveriesData || []);
+            setPayments(paymentsData || []);
+            await fetchPublicContent();
+            return; // EXIT EARLY: Do not process admin/staff logic
+        }
+
+        // --- PRIORITY 2: Check for Admin/Staff Profile ---
         const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('role, status')
             .eq('id', user.id)
             .single();
         
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
+        if (profileError && profileError.code !== 'PGRST116') { 
             throw profileError;
         }
 
-        if (profileData) { // User is admin or staff
+        if (profileData) { 
             const role = profileData.role as Profile['role'];
             setUserRole(role);
     
@@ -282,7 +340,7 @@ const App: React.FC = () => {
                 return;
             }
             
-            // Admin data fetch continues here...
+            // Admin data fetch
             const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
             if (usersError) throw usersError;
             setManagedUsers((usersData as ManagedUser[]) || []);
@@ -301,7 +359,13 @@ const App: React.FC = () => {
                 fetchAll<PendingDelivery>('pending_deliveries')
             ]);
             
-            const { data: contentData, error: contentError } = await supabase.from('website_content').select('content').single();
+            const { data: contentRows, error: contentError } = await supabase
+                .from('website_content')
+                .select('content')
+                .order('id', { ascending: false })
+                .limit(1);
+            
+            const contentData = contentRows?.[0];
     
             setCustomers(customersData || []);
             setDeliveries(deliveriesData || []);
@@ -309,9 +373,7 @@ const App: React.FC = () => {
             setPayments(paymentsData || []);
             setPendingDeliveries(pendingDeliveriesData || []);
     
-            if (contentError && contentError.code !== 'PGRST116') {
-                 throw contentError;
-            }
+            if (contentError) throw contentError;
     
             if (contentData) {
                 setWebsiteContent(contentData.content as WebsiteContent);
@@ -327,33 +389,12 @@ const App: React.FC = () => {
                     setWebsiteContent(seededContent.content as WebsiteContent);
                 }
             }
-        } else { // User might be a customer
-            const { data: customerData, error: customerError } = await supabase
-                .from('customers')
-                .select('*')
-                .eq('userId', user.id)
-                .single();
-
-            if (customerError && customerError.code !== 'PGRST116') {
-                throw customerError;
-            }
-
-            if(customerData) {
-                setUserRole('customer');
-                setCustomerProfile(customerData as Customer);
-                // RLS will ensure only their data is fetched
-                const [deliveriesData, paymentsData] = await Promise.all([
-                    fetchAll<Delivery>('deliveries'),
-                    fetchAll<Payment>('payments')
-                ]);
-                setDeliveries(deliveriesData || []);
-                setPayments(paymentsData || []);
-                await fetchPublicContent();
-            } else {
-                // Not an admin, staff, or linked customer. Log them out.
-                 await supabase.auth.signOut();
-                 setFetchError("Your user account is not associated with an admin, staff, or customer profile. Please contact support.");
-            }
+        } else { 
+            // --- ERROR CASE: Authenticated but no role found ---
+            // DO NOT LOG OUT. Show specific error to allow debugging or self-healing retry.
+            console.warn("User authenticated but no profile or customer record found.");
+            setFetchError(`Account setup incomplete. We could not find a customer record for ${user.email?.split('@')[0] || 'this account'}. Please contact support.`);
+            setIsLoading(false);
         }
     } catch (error: any) {
         console.error('Error fetching data:', error);

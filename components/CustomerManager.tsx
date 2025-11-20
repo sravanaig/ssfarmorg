@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import type { Customer } from '../types';
+import type { Customer, Profile } from '../types';
 import Modal from './Modal';
 import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon, SpinnerIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
@@ -99,6 +100,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
 
     const handleResetSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        e.stopPropagation(); // STOP event from bubbling up to the parent form
+        
         setResetError('');
         if (newPassword.length < 6) {
             setResetError('Password must be at least 6 characters long.');
@@ -276,14 +279,20 @@ interface CustomerManagerProps {
   projectRef: string | null;
   isLegacySchema: boolean;
   isReadOnly?: boolean;
+  userRole: Profile['role'] | 'customer' | null;
 }
 
-const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema, isReadOnly = false }) => {
+const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustomers, projectRef, isLegacySchema, isReadOnly = false, userRole }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Permission Logic
+  const canDelete = userRole === 'admin' || userRole === 'super_admin';
+  const canImportExport = userRole === 'admin' || userRole === 'super_admin';
+  const canEdit = true; // Staff can edit, assuming they need to update phone numbers etc.
 
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -311,10 +320,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         });
 
         if (error) {
-            // Throw the error to be caught by the calling function's catch block
             throw error;
         } else if (resultingUserId && (!newUserId || newUserId !== resultingUserId)) {
-             // If a new user ID was created by the function, update local state
              setCustomers(prev => prev.map(c => 
                 c.id === customerId ? { ...c, userId: resultingUserId } : c
             ));
@@ -322,8 +329,9 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     } catch (rpcError: any) {
         const message = getFriendlyErrorMessage(rpcError);
         console.error(`RPC call failed while setting password for customer ${customerId}:`, message);
-        // Alert the admin so they are aware of the problem immediately. This prevents silent failures.
-        alert(`IMPORTANT: The customer was saved, but their login could not be created/updated.\n\nPlease ensure the phone number is unique and save the customer again.\n\nError: ${message}`);
+        if (message.includes('function') && message.includes('does not exist')) {
+             alert("Note: Customer created, but login creation failed. Please ask an admin to run the database setup script.");
+        }
     }
   };
 
@@ -410,10 +418,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleResetPassword = async (customerId: string, newPassword: string): Promise<{success: boolean}> => {
-    if (!window.confirm(`Are you sure you want to reset the password for this customer?`)) {
-        return { success: false };
-    }
-
     try {
         const { error } = await supabase.rpc('admin_set_customer_password', {
             p_customer_id: customerId,
@@ -426,13 +430,15 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         return { success: true };
 
     } catch (error: any) {
-        alert(`Failed to reset password: ${getFriendlyErrorMessage(error)}`);
+        const msg = getFriendlyErrorMessage(error);
+        alert(`Failed to reset password: ${msg}`);
         return { success: false };
     }
   };
 
 
   const handleDeleteCustomer = async (id: string) => {
+    if (!canDelete) return;
     if (window.confirm('Are you sure you want to delete this customer? This will also delete their login and all associated data. This action cannot be undone.')) {
         try {
             const customerToDelete = customers.find(c => c.id === id);
@@ -444,9 +450,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 });
                 
                 if (userDeleteError) {
-                    // Throw the error to stop the process if the auth user can't be deleted.
-                    // This prevents creating orphaned customer records later.
-                    throw userDeleteError;
+                     const msg = getFriendlyErrorMessage(userDeleteError);
+                     if (!msg.includes('does not exist')) {
+                        throw userDeleteError;
+                     }
                 }
             }
 
@@ -505,7 +512,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         }
         
         const header = rows[0].split(',').map(h => h.trim());
-        const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity']; // status is optional
+        const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity']; 
         if (!requiredHeaders.every(h => header.includes(h))) {
             throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
         }
@@ -551,7 +558,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             for (const customer of importedCustomers) {
                 await setDefaultPasswordIfNeeded(customer.id, customer.phone);
             }
-            alert(`${importedCustomers.length} customers imported successfully. Default passwords have been set.`);
+            alert(`${importedCustomers.length} customers imported successfully.`);
         }
   }
 
@@ -564,13 +571,12 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         try {
             const text = e.target?.result;
             if (typeof text !== 'string') {
-              alert('Error reading file content or file is empty.');
+              alert('Error reading file content.');
               return;
             }
             await processAndImportCustomers(text);
         } catch (error: any) {
-            alert("An error occurred while importing the file: " + getFriendlyErrorMessage(error));
-            console.error(error);
+            alert("An error occurred while importing: " + getFriendlyErrorMessage(error));
         } finally {
             if (fileInputRef.current) {
                 fileInputRef.current.value = '';
@@ -581,10 +587,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleDeleteAllCustomers = async () => {
-    if (isReadOnly) return;
+    if (!canDelete) return;
     
     const confirmation = prompt(
-      "DANGER: This will permanently delete ALL customers, their logins, and all associated delivery, payment, and order history. This action cannot be undone.\n\nTo confirm, type 'DELETE ALL CUSTOMERS' in the box below."
+      "DANGER: This will permanently delete ALL customers. Type 'DELETE ALL CUSTOMERS' to confirm."
     );
 
     if (confirmation !== 'DELETE ALL CUSTOMERS') {
@@ -597,7 +603,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         const { error } = await supabase.rpc('admin_delete_all_customers');
         if (error) throw error;
         
-        alert('All customer data has been successfully deleted. The page will now reload.');
+        alert('All customer data has been successfully deleted.');
         window.location.reload();
         
     } catch (error: any) {
@@ -624,16 +630,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 </div>
                 {!isReadOnly && (
                     <>
-                        <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
-                        <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
-                            <UploadIcon className="h-4 w-4 mr-2"/> Import
-                        </button>
-                        <button onClick={handleExport} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
-                            <DownloadIcon className="h-4 w-4 mr-2"/> Export
-                        </button>
-                        <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
-                            Template
-                        </button>
+                        {canImportExport && (
+                            <>
+                                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
+                                <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                                    <UploadIcon className="h-4 w-4 mr-2"/> Import
+                                </button>
+                                <button onClick={handleExport} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                                    <DownloadIcon className="h-4 w-4 mr-2"/> Export
+                                </button>
+                                <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
+                                    Template
+                                </button>
+                            </>
+                        )}
                         <button onClick={openAddModal} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
                             <PlusIcon className="h-5 w-5 mr-2"/>
                             Add Customer
@@ -690,8 +700,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                             </td>
                                             {!isReadOnly && (
                                                 <td className="px-6 py-4 text-right space-x-4">
-                                                    <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 inline-block align-middle" title="Edit Customer"><EditIcon className="w-5 h-5"/></button>
-                                                    <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle" title="Delete Customer"><TrashIcon className="w-5 h-5"/></button>
+                                                    {canEdit && <button onClick={() => openEditModal(customer)} className="text-blue-600 hover:text-blue-800 inline-block align-middle" title="Edit Customer"><EditIcon className="w-5 h-5"/></button>}
+                                                    {canDelete && <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-600 hover:text-red-800 inline-block align-middle" title="Delete Customer"><TrashIcon className="w-5 h-5"/></button>}
                                                 </td>
                                             )}
                                         </tr>
@@ -723,12 +733,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                     </div>
                                     {!isReadOnly && (
                                         <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-                                            <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">
-                                                <EditIcon className="w-4 h-4 mr-1"/> Edit
-                                            </button>
-                                            <button onClick={() => handleDeleteCustomer(customer.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">
-                                                <TrashIcon className="w-4 h-4 mr-1"/> Delete
-                                            </button>
+                                            {canEdit && <button onClick={() => openEditModal(customer)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600"><EditIcon className="w-4 h-4 mr-1"/> Edit</button>}
+                                            {canDelete && <button onClick={() => handleDeleteCustomer(customer.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"><TrashIcon className="w-4 h-4 mr-1"/> Delete</button>}
                                         </div>
                                     )}
                                 </div>
@@ -744,7 +750,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             ) : (
                 <div className="text-center py-12 px-6">
                     <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-                    <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer or importing from a CSV file.</p>
+                    <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer.</p>
                     {!isReadOnly && (
                         <div className="mt-4">
                             <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
@@ -757,11 +763,11 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             )}
         </div>
         
-        {!isReadOnly && customers.length > 0 && (
+        {canDelete && customers.length > 0 && (
             <div className="mt-8 p-4 bg-red-50 border-t-4 border-red-500 rounded-b-lg shadow-md">
                 <h3 className="text-lg font-bold text-red-800">Danger Zone</h3>
                 <p className="mt-1 text-sm text-red-700">
-                    This action is irreversible and will permanently delete all customer data, including their logins, deliveries, and payment history.
+                    This action is irreversible and will permanently delete all customer data.
                 </p>
                 <div className="mt-4">
                     <button

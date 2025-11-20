@@ -1,3 +1,8 @@
+
+
+
+
+
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment, Order, PendingDelivery } from '../types';
 import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon, CheckIcon } from './Icons';
@@ -49,7 +54,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = today.substring(0, 7); // YYYY-MM
         
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
+        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c] as [string, Customer]));
 
         // Today's Deliveries
         const todaysDeliveries = deliveries.filter(d => d.date === today);
@@ -94,7 +99,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
     }, [customers, deliveries, payments, pendingDeliveries]);
     
     const dailySummary = useMemo(() => {
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
+        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c] as [string, Customer]));
         const deliveriesForDate = deliveries.filter(d => d.date === summaryDate);
 
         const totalQuantity = deliveriesForDate.reduce((sum, d) => sum + d.quantity, 0);
@@ -114,7 +119,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
     const monthlySummary = useMemo(() => {
         if (!summaryMonth) return { totalQuantity: 0, customersServed: 0, totalRevenue: 0 };
         
-        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c]));
+        const customerMap: Map<string, Customer> = new Map(customers.filter(c => c && c.id).map(c => [c.id, c] as [string, Customer]));
         const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
 
         const totalQuantity = deliveriesForMonth.reduce((sum, d) => sum + d.quantity, 0);
@@ -187,7 +192,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
     useEffect(() => {
         if (!pieChartRef.current || typeof Chart === 'undefined') return;
 
-        const customerMap = new Map(customers.map(c => [c.id, c.name]));
+        const customerMap = new Map<string, string>(customers.map(c => [c.id, c.name] as [string, string]));
         const deliveriesForMonth = deliveries.filter(d => d.date.startsWith(summaryMonth));
         
         const quantityByCustomer = new Map<string, number>();
@@ -231,8 +236,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 plugins: {
                     legend: { position: 'right' },
                     tooltip: { callbacks: { label: (c: any) => {
-                        const raw = c.raw;
-                        const labelVal = c.label;
+                        const raw = c.raw as number | undefined;
+                        const labelVal = c.label as string | undefined;
                         const value = typeof raw === 'number' ? raw.toFixed(2) : '0.00';
                         const label = typeof labelVal === 'string' ? labelVal : '';
                         return `${label}: ${value} L`;
