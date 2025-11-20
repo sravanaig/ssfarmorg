@@ -11,10 +11,17 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; d
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const [copied, setCopied] = useState(false);
 
-    const contentString = React.Children.toArray(children).join('\n');
-
     const handleCopy = () => {
-        navigator.clipboard.writeText(contentString);
+        let textToCopy = '';
+        if (typeof children === 'string') {
+            textToCopy = children;
+        } else if (Array.isArray(children)) {
+             textToCopy = children.join('');
+        } else {
+             textToCopy = String(children);
+        }
+        
+        navigator.clipboard.writeText(textToCopy);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -28,7 +35,7 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; d
             {isOpen && (
                 <div className="p-4 border-t">
                     <div className="relative">
-                        <pre className="bg-gray-800 text-white p-4 rounded-md text-xs overflow-x-auto">
+                        <pre className="bg-gray-800 text-white p-4 rounded-md text-xs overflow-x-auto whitespace-pre-wrap">
                             {children}
                         </pre>
                         <button onClick={handleCopy} className="absolute top-2 right-2 flex items-center px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-500">
@@ -422,131 +429,241 @@ CREATE POLICY "Staff can view/add customers" ON public.customers FOR SELECT
   
 CREATE POLICY "Staff can insert customers" ON public.customers FOR INSERT
   WITH CHECK ( check_user_role('staff') );
-
+  
 CREATE POLICY "Staff can update customers" ON public.customers FOR UPDATE
-  USING ( check_user_role('staff') ) WITH CHECK ( check_user_role('staff') );
-
+  USING ( check_user_role('staff') )
+  WITH CHECK ( check_user_role('staff') );
+  
 CREATE POLICY "Customers can view their own record" ON public.customers FOR SELECT
-  USING ( auth.uid() = "userId" );
+  USING ( "userId" = auth.uid() );
+
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
--- Orders
-ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Staff+ manage orders" ON public.orders;
-CREATE POLICY "Staff+ manage orders" ON public.orders FOR ALL USING (check_user_role('staff')) WITH CHECK (check_user_role('staff'));
-
 -- Deliveries
-ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
--- Explicitly drop delivery policies to prevent conflicts
+ALTER TABLE public.deliveries DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage deliveries" ON public.deliveries;
 DROP POLICY IF EXISTS "Staff view deliveries" ON public.deliveries;
 DROP POLICY IF EXISTS "Customers view own deliveries" ON public.deliveries;
 
--- Only Admins can manage final deliveries table directly (Staff use pending)
-CREATE POLICY "Admins manage deliveries" ON public.deliveries FOR ALL USING (check_user_role('admin')) WITH CHECK (check_user_role('admin'));
-CREATE POLICY "Staff view deliveries" ON public.deliveries FOR SELECT USING (check_user_role('staff'));
-CREATE POLICY "Customers view own deliveries" ON public.deliveries FOR SELECT USING (EXISTS (SELECT 1 FROM public.customers c WHERE c.id = "customerId" AND c."userId" = auth.uid()));
+CREATE POLICY "Admins manage deliveries" ON public.deliveries FOR ALL
+  USING ( check_user_role('admin') );
+
+CREATE POLICY "Staff view deliveries" ON public.deliveries FOR SELECT
+  USING ( check_user_role('staff') );
+
+CREATE POLICY "Customers view own deliveries" ON public.deliveries FOR SELECT
+  USING ( "customerId" IN (SELECT id FROM public.customers WHERE "userId" = auth.uid()) );
+
+ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 
 -- Pending Deliveries
+ALTER TABLE public.pending_deliveries DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins manage pending" ON public.pending_deliveries;
+DROP POLICY IF EXISTS "Staff manage pending" ON public.pending_deliveries;
+
+CREATE POLICY "Admins manage pending" ON public.pending_deliveries FOR ALL
+  USING ( check_user_role('admin') );
+
+CREATE POLICY "Staff manage pending" ON public.pending_deliveries FOR ALL
+  USING ( check_user_role('staff') );
+
 ALTER TABLE public.pending_deliveries ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Staff+ manage pending" ON public.pending_deliveries;
-CREATE POLICY "Staff+ manage pending" ON public.pending_deliveries FOR ALL USING (check_user_role('staff')) WITH CHECK (check_user_role('staff'));
+
 
 -- Payments
-ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage payments" ON public.payments;
 DROP POLICY IF EXISTS "Staff view payments" ON public.payments;
 DROP POLICY IF EXISTS "Customers view own payments" ON public.payments;
 
-CREATE POLICY "Admins manage payments" ON public.payments FOR ALL USING (check_user_role('admin')) WITH CHECK (check_user_role('admin'));
-CREATE POLICY "Staff view payments" ON public.payments FOR SELECT USING (check_user_role('staff'));
-CREATE POLICY "Customers view own payments" ON public.payments FOR SELECT USING (EXISTS (SELECT 1 FROM public.customers c WHERE c.id = "customerId" AND c."userId" = auth.uid()));
+CREATE POLICY "Admins manage payments" ON public.payments FOR ALL
+  USING ( check_user_role('admin') );
+
+CREATE POLICY "Staff view payments" ON public.payments FOR SELECT
+  USING ( check_user_role('staff') );
+
+CREATE POLICY "Customers view own payments" ON public.payments FOR SELECT
+  USING ( "customerId" IN (SELECT id FROM public.customers WHERE "userId" = auth.uid()) );
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+-- Orders
+ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins manage orders" ON public.orders;
+DROP POLICY IF EXISTS "Staff manage orders" ON public.orders;
+
+CREATE POLICY "Admins manage orders" ON public.orders FOR ALL
+  USING ( check_user_role('admin') );
+
+CREATE POLICY "Staff manage orders" ON public.orders FOR ALL
+  USING ( check_user_role('staff') );
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 -- Website Content
+ALTER TABLE public.website_content DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins manage content" ON public.website_content;
+DROP POLICY IF EXISTS "Public view content" ON public.website_content;
+
+CREATE POLICY "Admins manage content" ON public.website_content FOR ALL
+  USING ( check_user_role('admin') );
+
+CREATE POLICY "Public view content" ON public.website_content FOR SELECT
+  USING ( true );
+
 ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Super Admin manage content" ON public.website_content;
-DROP POLICY IF EXISTS "Public read content" ON public.website_content;
-
-CREATE POLICY "Super Admin manage content" ON public.website_content FOR ALL USING (check_user_role('super_admin')) WITH CHECK (check_user_role('super_admin'));
-CREATE POLICY "Public read content" ON public.website_content FOR SELECT USING (true);
 
 
--- STEP 10: BOOTSTRAP SUPER ADMIN
--- This block promotes sravanaig@gmail.com to super_admin automatically.
-DO $$
+-- STEP 10: Helper Functions
+
+-- Reset Customer Password (Admin)
+CREATE OR REPLACE FUNCTION admin_set_customer_password(p_customer_id uuid, p_password text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
 DECLARE
-    target_email text := 'sravanaig@gmail.com';
-    target_uid uuid;
+  v_customer_phone text;
+  v_user_id uuid;
+  v_email text;
 BEGIN
-    SELECT id INTO target_uid FROM auth.users WHERE email = target_email;
+  IF NOT check_user_role('admin') THEN
+    RAISE EXCEPTION 'Access denied';
+  END IF;
+  
+  SELECT phone, "userId" INTO v_customer_phone, v_user_id FROM public.customers WHERE id = p_customer_id;
+  
+  IF v_customer_phone IS NULL OR LENGTH(v_customer_phone) < 10 THEN
+     RAISE EXCEPTION 'Invalid customer phone number';
+  END IF;
+  
+  -- Ensure clean number
+  v_customer_phone := REGEXP_REPLACE(v_customer_phone, '[^0-9]', '', 'g');
+  v_customer_phone := RIGHT(v_customer_phone, 10);
+  v_email := v_customer_phone || '@ssfarmorganic.local';
+  
+  IF v_user_id IS NOT NULL THEN
+    -- Update existing user
+    UPDATE auth.users 
+    SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')) 
+    WHERE id = v_user_id;
+  ELSE
+    -- Create new user
+    -- Check if user exists by email first (orphaned user case)
+    SELECT id INTO v_user_id FROM auth.users WHERE email = v_email;
     
-    IF target_uid IS NOT NULL THEN
-        -- Ensure profile exists
-        INSERT INTO public.profiles (id, role, status)
-        VALUES (target_uid, 'super_admin', 'approved')
-        ON CONFLICT (id) DO UPDATE
-        SET role = 'super_admin', status = 'approved';
+    IF v_user_id IS NOT NULL THEN
+       UPDATE auth.users 
+       SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')) 
+       WHERE id = v_user_id;
+    ELSE
+       v_user_id := gen_random_uuid();
+       INSERT INTO auth.users (
+         instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+         raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+       ) VALUES (
+         '00000000-0000-0000-0000-000000000000', v_user_id, 'authenticated', 'authenticated',
+         v_email, extensions.crypt(p_password, extensions.gen_salt('bf')), now(),
+         '{"provider": "email", "providers": ["email"]}', '{}', now(), now()
+       );
     END IF;
-END $$;
-
-
--- Helper Functions (Password Setting, etc.) - kept same but updated permissions where needed
--- (Omitting full re-declaration for brevity as logic is handled by check_user_role hierarchy)
-
-CREATE OR REPLACE FUNCTION public.customer_exists_by_phone(p_phone text)
-RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public AS $$
-BEGIN
-    RETURN EXISTS (SELECT 1 FROM public.customers WHERE right(regexp_replace(phone, '\D', '', 'g'), 10) = right(regexp_replace(p_phone, '\D', '', 'g'), 10));
+    
+    -- Link
+    UPDATE public.customers SET "userId" = v_user_id WHERE id = p_customer_id;
+  END IF;
+  
+  RETURN v_user_id;
 END;
 $$;
-GRANT EXECUTE ON FUNCTION public.customer_exists_by_phone(text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_set_customer_password(uuid, text) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.link_customer_to_auth_user(p_phone text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+
+-- Admin Delete All Customers (Danger)
+CREATE OR REPLACE FUNCTION admin_delete_all_customers()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-    UPDATE public.customers SET "userId" = auth.uid() WHERE right(regexp_replace(phone, '\D', '', 'g'), 10) = right(regexp_replace(p_phone, '\D', '', 'g'), 10);
-    DELETE FROM public.profiles WHERE id = auth.uid();
+    IF NOT check_user_role('super_admin') THEN
+        RAISE EXCEPTION 'Access denied';
+    END IF;
+    
+    -- Delete associated auth users for customers
+    DELETE FROM auth.users WHERE id IN (SELECT "userId" FROM public.customers WHERE "userId" IS NOT NULL);
+    
+    -- Tables with ON DELETE CASCADE will handle the rest, but let's be explicit about the main table
+    DELETE FROM public.customers;
 END;
 $$;
-GRANT EXECUTE ON FUNCTION public.link_customer_to_auth_user(text) TO authenticated;
-`;
+GRANT EXECUTE ON FUNCTION admin_delete_all_customers() TO authenticated;
+
+-- SELF HEALING: Link Customer to Auth User (Fixes broken links)
+CREATE OR REPLACE FUNCTION link_customer_to_auth_user(p_phone text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id uuid;
+BEGIN
+  -- Find the auth user ID for this phone (email format)
+  SELECT id INTO v_user_id
+  FROM auth.users
+  WHERE email = p_phone || '@ssfarmorganic.local';
+
+  IF v_user_id IS NOT NULL THEN
+    -- Update the customer record
+    -- Handle both formats: raw 10 digit or +91 prefixed
+    UPDATE public.customers
+    SET "userId" = v_user_id
+    WHERE phone = '+91' || p_phone
+       OR phone = p_phone
+       OR phone LIKE '%' || p_phone;
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION link_customer_to_auth_user(text) TO authenticated;`;
 
     return (
-        <div className="max-w-4xl mx-auto p-4 md:p-8 bg-white shadow-lg rounded-lg mt-10">
-            <div className="flex items-center space-x-3 mb-6">
-                <div className="bg-red-100 p-2 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                </div>
-                <h1 className="text-2xl font-bold text-gray-800">Database Setup Required</h1>
-            </div>
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Database Repair & Setup</h2>
             
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
-                <p className="font-bold text-red-700">Error Detected:</p>
-                <p className="text-red-600">{errorMessage}</p>
-            </div>
-
-            <p className="text-gray-600 mb-6">
-                To fix this, you need to run the following SQL script in your Supabase SQL Editor. This script will update your database schema to support the latest features, including the multi-tier role system (Super Admin, Admin, Staff, Customer).
-            </p>
-
-            <div className="space-y-6">
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                    <h3 className="font-semibold text-blue-800 mb-2">Instructions:</h3>
-                    <ol className="list-decimal list-inside space-y-2 text-blue-700 text-sm">
-                        <li>Copy the SQL script below.</li>
-                        <li>Go to your <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noreferrer" className="underline font-bold hover:text-blue-900">Supabase SQL Editor</a>.</li>
-                        <li>Paste the script into the editor.</li>
-                        <li>Click <strong>Run</strong>.</li>
-                        <li>Once successful, refresh this page.</li>
-                    </ol>
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                <div className="flex">
+                    <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                    </div>
+                    <div className="ml-3">
+                        <p className="text-sm text-yellow-700">
+                            We detected a database issue: <span className="font-bold">{errorMessage}</span>
+                        </p>
+                        <p className="text-sm text-yellow-700 mt-2">
+                            Please run the SQL script below in your Supabase SQL Editor to fix table permissions and roles.
+                        </p>
+                    </div>
                 </div>
-
-                <CollapsibleSection title="View Full SQL Script" defaultOpen={true}>
-                    {fullSetupSql}
-                </CollapsibleSection>
             </div>
+
+            <div className="mb-6">
+                <h3 className="text-lg font-semibold mb-2">Instructions:</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
+                    <li>Copy the SQL script below.</li>
+                    <li>Go to your Supabase Dashboard ({projectRef ? <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Click here</a> : 'Project Settings -> SQL Editor'}).</li>
+                    <li>Click "New Query".</li>
+                    <li>Paste the script and click "Run".</li>
+                    <li>Once successful, return here and refresh the page.</li>
+                </ol>
+            </div>
+
+            <CollapsibleSection title="Full Database Setup Script (Run this)" defaultOpen={true}>
+                {fullSetupSql}
+            </CollapsibleSection>
         </div>
     );
 };

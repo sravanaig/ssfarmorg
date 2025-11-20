@@ -254,6 +254,9 @@ const App: React.FC = () => {
             .eq('id', user.id)
             .single();
         
+        // If profile table missing, it's a schema mismatch. 
+        // PGRST116 means no row found (which is fine if they are a customer), 
+        // but 42P01 means table doesn't exist.
         if (profileError && profileError.code !== 'PGRST116') { 
             throw profileError;
         }
@@ -287,8 +290,6 @@ const App: React.FC = () => {
             }
             
             // Admin / Super Admin data fetch
-            // IMPORTANT: If the DB schema for get_all_users is outdated (missing super_admin support), this RPC might fail.
-            // App.tsx must handle this error gracefully to allow the user to fix the DB.
             const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
             if (usersError) throw usersError;
             setManagedUsers((usersData as ManagedUser[]) || []);
@@ -403,26 +404,28 @@ const App: React.FC = () => {
         
     } catch (error: any) {
         console.error('Error fetching data:', error);
+        
         const friendlyMessage = getFriendlyErrorMessage(error);
-        const msg = (error.message || '').toLowerCase();
+        // Ensure we never set an object as the error message
+        const displayMsg = typeof friendlyMessage === 'string' ? friendlyMessage : 'An unexpected error occurred.';
+        const msgLower = displayMsg.toLowerCase();
+
         if (
-            msg.includes('relation "public.profiles" does not exist') ||
-            (msg.includes('column') && msg.includes('does not exist')) ||
-            (msg.includes('relation') && msg.includes('does not exist')) ||
-            msg.includes('could not find the table') ||
-            msg.includes('in the schema cache') ||
-            msg.includes('privileges') ||
-            msg.includes('access denied') ||
-            msg.includes('infinite recursion detected') ||
-            msg.includes('structure of query does not match')
+            msgLower.includes('relation "public.profiles" does not exist') ||
+            msgLower.includes('relation "profiles" does not exist') ||
+            (msgLower.includes('column') && msgLower.includes('does not exist')) ||
+            (msgLower.includes('relation') && msgLower.includes('does not exist')) ||
+            msgLower.includes('could not find the table') ||
+            msgLower.includes('in the schema cache') ||
+            msgLower.includes('privileges') ||
+            msgLower.includes('access denied') ||
+            msgLower.includes('infinite recursion detected') ||
+            msgLower.includes('structure of query does not match') ||
+            error?.code === '42P01'
         ) {
-             // Use string conversion to avoid [object Object] in template literal
-             const safeErrorMessage = typeof error.message === 'string' ? error.message : friendlyMessage;
-             const finalMsg = typeof safeErrorMessage === 'object' ? JSON.stringify(safeErrorMessage) : safeErrorMessage;
-             setFetchError(`SCHEMA_MISMATCH: ${finalMsg}`);
+             setFetchError(`SCHEMA_MISMATCH: ${displayMsg}`);
         } else {
-             const finalMsg = typeof friendlyMessage === 'object' ? JSON.stringify(friendlyMessage) : friendlyMessage;
-            setFetchError(`Error loading data. ${finalMsg}`);
+            setFetchError(`Error loading data. ${displayMsg}`);
         }
     }
   }, []);
@@ -536,6 +539,7 @@ const App: React.FC = () => {
     await supabase.auth.signOut();
     setCurrentPage('home');
     setUserRole(null);
+    setFetchError(null);
   };
 
   const handleSetView = (newView: View) => {
@@ -575,16 +579,31 @@ const App: React.FC = () => {
                    {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') ? (
                       <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
                     ) : fetchError ? (
-                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
-                        <p className="font-bold">Error</p>
-                        <p>{fetchError}</p>
-                        {fetchError.includes('privileges') && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
-                             <div className="mt-2">
+                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-6 rounded-lg shadow-sm max-w-3xl mx-auto mt-10" role="alert">
+                        <h3 className="text-xl font-bold mb-2">Error</h3>
+                        <p className="mb-4 text-lg">{fetchError}</p>
+                        {fetchError.includes('Account setup incomplete') && (
+                             <p className="text-sm text-red-600 mb-6 bg-white p-3 rounded border border-red-200">
+                                 <strong>For Admin:</strong> This means a customer record for this phone number has not been added to the system yet. Please log in as Admin, go to Customers, and add this phone number. <br/><br/>
+                                 <strong>For Customer:</strong> Please contact us to have your account activated.
+                             </p>
+                        )}
+                        
+                        {/* Show DB Repair link for possible admins even in generic error state if they are sravanaig */}
+                        {(fetchError.includes('privileges') || fetchError.includes('relation') || (userEmail === 'sravanaig@gmail.com')) && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
+                             <div className="mt-2 mb-4">
                                 <button onClick={() => setView('database')} className="underline font-bold hover:text-red-900">
                                     Click here to open Database Repair Tool
                                 </button>
                              </div>
                         )}
+
+                        <div className="mt-6">
+                             <button onClick={handleLogout} className="flex items-center justify-center w-full md:w-auto px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-md">
+                                <LogoutIcon className="h-5 w-5 mr-2" />
+                                Logout & Try Different Account
+                            </button>
+                        </div>
                       </div>
                     ) : (
                         <>

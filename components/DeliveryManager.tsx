@@ -197,9 +197,14 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         
         setDeliveries(prev => {
             const deliveriesAfterDeletion = prev.filter(d => !(d.date === selectedDate && customerIdsToDelete.includes(d.customerId)));
-            // Explicit typing for Map to avoid inference errors
-            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
-            if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
+            // Explicitly type the Map to ensure TypeScript understands the structure
+            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+            
+            if (upsertResult.data) { 
+                (upsertResult.data as Delivery[]).forEach(d => { 
+                    updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); 
+                }); 
+            }
             return Array.from(updatedDeliveriesMap.values());
         });
         setPendingChanges(new Map());
@@ -212,7 +217,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   };
 
   const handleSetAllDefaults = () => {
-    const newChanges = new Map(pendingChanges);
+    const newChanges = new Map<string, number>(pendingChanges);
     let changesMade = 0;
     activeCustomers.forEach(customer => {
         const hasPendingChange = newChanges.has(customer.id);
@@ -269,7 +274,7 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
   const handleSetMonthToDefault = () => {
     const customer = customers.find(c => c.id === selectedMonthlyCustomer);
     if (!customer || !selectedMonth) return;
-    const newChanges = new Map(monthlyPendingChanges);
+    const newChanges = new Map<string, number>(monthlyPendingChanges);
     let changesMade = 0;
     datesOfMonth.forEach(date => {
         const hasDelivery = customerDeliveriesForMonth.has(date);
@@ -307,8 +312,13 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         
         setDeliveries(prev => {
             const deliveriesAfterDeletion = prev.filter(d => !(d.customerId === selectedMonthlyCustomer && datesToDelete.includes(d.date)));
-            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
-            if (upsertResult.data) { (upsertResult.data as Delivery[]).forEach(d => { updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); }); }
+            const updatedDeliveriesMap = new Map<string, Delivery>(deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
+
+            if (upsertResult.data) { 
+                (upsertResult.data as Delivery[]).forEach(d => { 
+                    updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d); 
+                }); 
+            }
             return Array.from(updatedDeliveriesMap.values());
         });
         setMonthlyPendingChanges(new Map());
@@ -345,6 +355,8 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
 
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>, month: string) => {
     const file = event.target.files?.[0];
+    // Capture input element here to clear it in finally block
+    const inputElement = event.target;
     if (!file || !month) return;
 
     const reader = new FileReader();
@@ -366,7 +378,6 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 throw new Error("Invalid template. First column must be 'Customer Name'.");
             }
             
-            // Explicitly type the Map to Map<string, string>
             const customerMapByName = new Map<string, string>(customers.map(c => [c.name.toLowerCase(), c.id] as [string, string]));
             const deliveriesToUpsert: Omit<Delivery, 'id' | 'userId'>[] = [];
             const notFoundCustomers = new Set<string>();
@@ -404,218 +415,267 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
                 .from('deliveries')
                 .upsert(deliveriesToUpsert, { onConflict: 'customerId,date' })
                 .select();
-            
+
             if (error) throw error;
-            
+
             if (data) {
+                const importedDeliveries = data as Delivery[];
                 setDeliveries(prev => {
-                    const updatedMap = new Map<string, Delivery>(prev.map(d => [`${d.customerId}-${d.date}`, d] as [string, Delivery]));
-                    (data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
-                    return Array.from(updatedMap.values());
+                    // Correctly merge new deliveries with existing ones
+                    const deliveryMap = new Map<string, Delivery>(prev.map(d => [`${d.customerId}-${d.date}`, d]));
+                    importedDeliveries.forEach(d => deliveryMap.set(`${d.customerId}-${d.date}`, d));
+                    return Array.from(deliveryMap.values());
                 });
+                
+                let msg = `${importedDeliveries.length} deliveries imported successfully.`;
+                if (notFoundCustomers.size > 0) {
+                    msg += `\n\nSkipped ${notFoundCustomers.size} unknown customers: ${Array.from(notFoundCustomers).slice(0, 5).join(', ')}${notFoundCustomers.size > 5 ? '...' : ''}`;
+                }
+                alert(msg);
+                setIsImportModalOpen(false);
             }
 
-            let alertMessage = `${data?.length || 0} delivery records imported/updated for ${month}.`;
-            if (notFoundCustomers.size > 0) {
-                alertMessage += `\n\nCould not find the following customers (they were skipped):\n- ${Array.from(notFoundCustomers).join('\n- ')}`;
-            }
-            alert(alertMessage);
-            setIsImportModalOpen(false);
         } catch (error: any) {
-             alert(`Error importing file: ${getFriendlyErrorMessage(error)}`);
+            alert("An error occurred while importing: " + getFriendlyErrorMessage(error));
         } finally {
-            if (event.target) {
-                event.target.value = '';
+             if (inputElement) {
+                inputElement.value = '';
             }
         }
     };
     reader.readAsText(file);
   };
-  
-  const handleExport = () => {
-    const customerMap = new Map<string, string>();
-    customers.forEach(c => customerMap.set(c.id, c.name));
-
-    const headers = ['customerName', 'date', 'quantity'];
-    const rows = deliveries.map(d => {
-        const customerName = customerMap.get(d.customerId) || 'Unknown Customer';
-        return `${customerName},${d.date},${d.quantity}`;
-    });
-    
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    downloadCSV(csvContent, 'all_deliveries.csv');
-  };
-  
-  const totalPendingChanges = mode === 'daily' ? pendingChanges.size : monthlyPendingChanges.size;
-  const saveButtonText = isSaving ? 'Saving...' : `Save Changes ${totalPendingChanges > 0 ? `(${totalPendingChanges})` : ''}`;
 
   return (
     <div>
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-gray-800">Manage Deliveries</h2>
-        <div className="flex items-center gap-2">
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
-                <UploadIcon className="h-4 w-4 mr-2"/> Bulk Import from CSV
+        <div className="flex items-center flex-wrap gap-2">
+             <div className="bg-gray-100 p-1 rounded-lg flex">
+                <button 
+                    onClick={() => setMode('daily')}
+                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${mode === 'daily' ? 'bg-white shadow-sm text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'}`}
+                >
+                    Daily View
+                </button>
+                <button 
+                    onClick={() => setMode('monthly')}
+                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${mode === 'monthly' ? 'bg-white shadow-sm text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'}`}
+                >
+                    Monthly View
+                </button>
+            </div>
+             <button onClick={() => setIsImportModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                <UploadIcon className="h-4 w-4 mr-2"/> Bulk Import
             </button>
-            <button onClick={handleExport} className="flex items-center px-4 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
-                <DownloadIcon className="h-4 w-4 mr-2"/> Export All Deliveries
-            </button>
-        </div>
-      </div>
-      
-      <div className="flex justify-center mb-6">
-        <div className="flex items-center p-1 bg-gray-200 rounded-lg">
-          <button onClick={() => setMode('daily')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === 'daily' ? 'bg-white text-blue-600 shadow' : 'text-gray-600'}`}>Daily View</button>
-          <button onClick={() => setMode('monthly')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-600'}`}>Single Customer (Monthly)</button>
         </div>
       </div>
 
-      {/* View-specific controls */}
-      <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
-        {mode === 'daily' ? (
-          <div className="flex items-center flex-wrap gap-4 justify-between">
-            <div className="flex items-center gap-2">
-              <label htmlFor="delivery-date" className="text-sm font-medium text-gray-700">Date:</label>
-              <input id="delivery-date" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div className="relative">
-              <input type="text" placeholder="Search customers..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="border border-gray-300 rounded-lg shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-            </div>
-            <div className="flex items-center border border-gray-300 rounded-md">
-              <button onClick={() => setViewMode('grid')} className={`p-2 rounded-l-md transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`} aria-label="Grid view"><GridIcon className="h-5 w-5" /></button>
-              <button onClick={() => setViewMode('list')} className={`p-2 rounded-r-md transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`} aria-label="List view"><ListIcon className="h-5 w-5" /></button>
-            </div>
-            <button onClick={handleSetAllDefaults} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700">Set Defaults</button>
-          </div>
-        ) : (
-          <div className="flex items-center flex-wrap gap-4 justify-between">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Customer:</label>
-              <select value={selectedMonthlyCustomer} onChange={e => setSelectedMonthlyCustomer(e.target.value)} className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                <option value="">-- Select Customer --</option>
-                {activeCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Month:</label>
-              <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-             {selectedMonthlyCustomer && <button onClick={handleSetMonthToDefault} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700">Set Month to Default</button>}
-          </div>
-        )}
-      </div>
-      
-      {/* Main Content Area */}
-      <div className="pb-24">
-        {mode === 'daily' ? (
-          filteredActiveCustomers.length > 0 ? (
-            viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredActiveCustomers.map(customer => (
-                  <div key={customer.id} className="bg-white shadow-md rounded-lg p-4">
-                    <h3 className="font-bold text-lg text-gray-800">{customer.name}</h3>
-                    <p className="text-sm text-gray-500 truncate">{customer.address}</p>
-                    <div className="mt-4 flex items-center justify-between">
-                      <label htmlFor={`quantity-grid-${customer.id}`} className="text-sm font-medium text-gray-700">Qty (L):</label>
-                      <QuantityInput
-                        id={`quantity-grid-${customer.id}`}
-                        value={getDisplayQuantity(customer.id)}
-                        onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
-                        placeholder={String(customer.defaultQuantity)}
-                        inputClassName="w-20"
-                      />
+      {mode === 'daily' && (
+        <div>
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4 bg-white p-4 rounded-lg shadow-sm">
+                 <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <label htmlFor="delivery-date" className="text-sm font-medium text-gray-700">Date:</label>
+                    <input
+                        id="delivery-date"
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                     <button onClick={handleSetAllDefaults} className="ml-2 px-3 py-2 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors">
+                        Set All Defaults
+                    </button>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-grow sm:flex-grow-0">
+                        <input
+                            type="text"
+                            placeholder="Search customers..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        />
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50"><tr><th className="px-6 py-3">Name</th><th className="px-6 py-3 hidden sm:table-cell">Address</th><th className="px-6 py-3 text-right">Quantity (L)</th></tr></thead>
-                  <tbody>
-                    {filteredActiveCustomers.map(customer => (
-                      <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
-                        <th className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
-                        <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
-                        <td className="px-6 py-4 text-right">
-                           <QuantityInput
-                            value={getDisplayQuantity(customer.id)}
-                            onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
-                            placeholder={String(customer.defaultQuantity)}
-                            inputClassName="w-20"
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          ) : (
-            <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
-              <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
-              <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+                    <div className="flex bg-gray-100 rounded-lg p-1">
+                        <button onClick={() => setViewMode('grid')} className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`} title="Grid View"><GridIcon className="h-5 w-5"/></button>
+                        <button onClick={() => setViewMode('list')} className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`} title="List View"><ListIcon className="h-5 w-5"/></button>
+                    </div>
+                </div>
             </div>
-          )
-        ) : (
-            selectedMonthlyCustomer ? (
-                <div className="bg-white shadow-md rounded-lg overflow-hidden p-6">
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                        {datesOfMonth.map((date) => {
-                             const day = new Date(date + 'T00:00:00Z').getUTCDate();
-                             const qty = getMonthlyDisplayQuantity(date);
-                             return (
-                                 <div key={date} className="border rounded-md p-2 flex flex-col items-center">
-                                     <span className="text-xs font-semibold text-gray-500 mb-1">{new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short' })} {day}</span>
-                                     <input
-                                        type="text"
-                                        value={qty}
-                                        onChange={(e) => handleMonthlyQuantityChange(date, e.target.value)}
-                                        className="w-full text-center border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                                        placeholder="-"
-                                     />
-                                 </div>
-                             )
+            
+            {activeCustomers.length > 0 ? (
+                filteredActiveCustomers.length > 0 ? (
+                    <div className="pb-24">
+                        {viewMode === 'list' ? (
+                             <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left text-gray-500">
+                                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                            <tr>
+                                                <th scope="col" className="px-6 py-3">Name</th>
+                                                <th scope="col" className="px-6 py-3 hidden sm:table-cell">Address</th>
+                                                <th scope="col" className="px-6 py-3 text-right">Quantity (L)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredActiveCustomers.map(customer => {
+                                                const quantity = getDisplayQuantity(customer.id);
+                                                return (
+                                                    <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
+                                                        <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
+                                                        <td className="px-6 py-4 hidden sm:table-cell">{customer.address}</td>
+                                                        <td className="px-6 py-4 text-right">
+                                                             <QuantityInput
+                                                                value={quantity}
+                                                                onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                                                                placeholder={String(customer.defaultQuantity)}
+                                                                inputClassName="w-20"
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {filteredActiveCustomers.map(customer => {
+                                    const quantity = getDisplayQuantity(customer.id);
+                                    return (
+                                        <div key={customer.id} className="bg-white border rounded-lg shadow-sm p-4 flex flex-col justify-between">
+                                            <div className="mb-4">
+                                                <h3 className="font-bold text-gray-800 truncate" title={customer.name}>{customer.name}</h3>
+                                                <p className="text-xs text-gray-500 truncate" title={customer.address}>{customer.address}</p>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded">Default: {customer.defaultQuantity}L</span>
+                                                <QuantityInput
+                                                    value={quantity}
+                                                    onChange={(newValue) => handleQuantityChange(customer.id, newValue)}
+                                                    placeholder={String(customer.defaultQuantity)}
+                                                    inputClassName="w-16"
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
+                        <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
+                        <p className="mt-1 text-sm text-gray-500">Try a different name.</p>
+                    </div>
+                )
+            ) : (
+                 <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
+                    <h3 className="text-lg font-medium text-gray-700">No Active Customers Found</h3>
+                    <p className="mt-1 text-sm text-gray-500">Please add customers or mark them as active to manage deliveries.</p>
+                </div>
+            )}
+
+            {pendingChanges.size > 0 && (
+                <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-700 font-medium">
+                                You have {pendingChanges.size} unsaved change{pendingChanges.size > 1 ? 's' : ''}.
+                            </span>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                {isSaving ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+      )}
+
+      {mode === 'monthly' && (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Customer</label>
+                    <select
+                        className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        value={selectedMonthlyCustomer}
+                        onChange={e => setSelectedMonthlyCustomer(e.target.value)}
+                    >
+                        <option value="">-- Choose a customer --</option>
+                        {activeCustomers.map(c => (
+                            <option key={c.id} value={c.id}>{c.name} ({c.address})</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Month</label>
+                    <input
+                        type="month"
+                        value={selectedMonth}
+                        onChange={e => setSelectedMonth(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                </div>
+            </div>
+            
+            {selectedMonthlyCustomer ? (
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-gray-800">
+                            Deliveries for {new Date(selectedMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}
+                        </h3>
+                         <button onClick={handleSetMonthToDefault} className="px-3 py-2 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors">
+                            Fill Defaults for Month
+                        </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-6">
+                        {datesOfMonth.map(date => {
+                            const quantity = getMonthlyDisplayQuantity(date);
+                            const dayNum = parseInt(date.split('-')[2]);
+                            const isToday = date === new Date().toISOString().split('T')[0];
+                            
+                            return (
+                                <div key={date} className={`border rounded p-2 flex flex-col items-center ${isToday ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
+                                    <span className={`text-xs font-medium mb-1 ${isToday ? 'text-blue-700' : 'text-gray-500'}`}>
+                                        {new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short' })} {dayNum}
+                                    </span>
+                                    <QuantityInput
+                                        value={quantity}
+                                        onChange={(val) => handleMonthlyQuantityChange(date, val)}
+                                        inputClassName="w-12 text-sm"
+                                    />
+                                </div>
+                            );
                         })}
                     </div>
-                     <div className="mt-6 flex justify-end">
-                        <button
-                            onClick={handleSaveMonthlyChanges}
-                            disabled={isSaving}
-                            className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    
+                    <div className="flex justify-end border-t pt-4">
+                        <button 
+                            onClick={handleSaveMonthlyChanges} 
+                            disabled={isSaving || monthlyPendingChanges.size === 0} 
+                            className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isSaving ? 'Saving...' : 'Save Monthly Changes'}
+                             {isSaving ? 'Saving...' : `Save ${monthlyPendingChanges.size} Changes`}
                         </button>
                     </div>
                 </div>
             ) : (
-                 <div className="text-center py-12 px-6 bg-white rounded-lg shadow-md">
-                    <h3 className="text-lg font-medium text-gray-700">Select a Customer</h3>
-                    <p className="mt-1 text-sm text-gray-500">Please select a customer to view their monthly calendar.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg">
+                    <p className="text-gray-500">Please select a customer to view and edit their monthly calendar.</p>
                 </div>
-            )
-        )}
-      </div>
-
-      {mode === 'daily' && pendingChanges.size > 0 && (
-        <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-                <div className="flex justify-between items-center">
-                    <span className="text-gray-700 font-medium">
-                        You have {pendingChanges.size} unsaved change{pendingChanges.size > 1 ? 's' : ''}.
-                    </span>
-                    <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                        {saveButtonText}
-                    </button>
-                </div>
-            </div>
+            )}
         </div>
       )}
-
+      
       <BulkImportModal 
         isOpen={isImportModalOpen} 
-        onClose={() => setIsImportModalOpen(false)}
+        onClose={() => setIsImportModalOpen(false)} 
         onDownloadTemplate={handleDownloadTemplate}
         onFileImport={handleFileImport}
       />

@@ -1,5 +1,4 @@
 
-
 export const getFriendlyErrorMessage = (error: any): string => {
   if (!error) {
     return 'An unknown error occurred.';
@@ -11,16 +10,15 @@ export const getFriendlyErrorMessage = (error: any): string => {
   }
   
   // Case 2: Error is an object. Extract a message string if possible.
-  // We check for common properties where error messages are stored.
-  // Safely handle cases where message properties might be objects themselves.
-  let message = error.message || error.details || error.error_description;
+  let message = error.message || error.details || error.error_description || error.body || error.statusText;
   
+  // Sometimes 'message' itself is an object (e.g. from some API responses)
   if (typeof message === 'object') {
       try {
           message = JSON.stringify(message);
       } catch (e) {
           // Fallback if circular reference or other issue
-          message = String(message); 
+          message = 'An error occurred (details could not be parsed).'; 
       }
   }
 
@@ -57,7 +55,9 @@ export const getFriendlyErrorMessage = (error: any): string => {
   
   // Try to return JSON representation if possible for debugging
   try {
-      return JSON.stringify(error);
+      const json = JSON.stringify(error);
+      if (json === '{}') return 'An unexpected error occurred.';
+      return json;
   } catch (e) {
       return 'An unexpected error occurred. Please check the console for more details.';
   }
