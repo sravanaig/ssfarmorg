@@ -626,7 +626,46 @@ BEGIN
   END IF;
 END;
 $$;
-GRANT EXECUTE ON FUNCTION link_customer_to_auth_user(text) TO authenticated;`;
+GRANT EXECUTE ON FUNCTION link_customer_to_auth_user(text) TO authenticated;
+
+-- HIT COUNTER SETUP
+CREATE TABLE IF NOT EXISTS public.website_stats (
+    name text PRIMARY KEY,
+    value bigint DEFAULT 0
+);
+
+-- Seed initial value
+INSERT INTO public.website_stats (name, value)
+VALUES ('total_visits', 0)
+ON CONFLICT (name) DO NOTHING;
+
+-- Enable RLS
+ALTER TABLE public.website_stats ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read
+DROP POLICY IF EXISTS "Public view stats" ON public.website_stats;
+CREATE POLICY "Public view stats" ON public.website_stats FOR SELECT USING (true);
+
+-- Function to increment (security definer to bypass RLS for update)
+CREATE OR REPLACE FUNCTION increment_visitor_count()
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_val bigint;
+BEGIN
+  INSERT INTO public.website_stats (name, value)
+  VALUES ('total_visits', 1)
+  ON CONFLICT (name)
+  DO UPDATE SET value = website_stats.value + 1
+  RETURNING value INTO new_val;
+  
+  RETURN new_val;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION increment_visitor_count() TO anon, authenticated, service_role;`;
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-md">

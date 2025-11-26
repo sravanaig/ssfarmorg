@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { MenuIcon, XIcon, WhatsAppIcon } from './Icons';
 import type { Page } from '../App';
 import EnquiryModal from './EnquiryModal';
+import { supabase } from '../lib/supabaseClient';
 
 interface SharedLayoutProps {
     children: React.ReactNode;
@@ -12,7 +14,35 @@ interface SharedLayoutProps {
 const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onNavigate }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isEnquiryModalOpen, setIsEnquiryModalOpen] = useState(false);
+    const [visitCount, setVisitCount] = useState<number | null>(null);
     
+    useEffect(() => {
+        const incrementVisit = async () => {
+            try {
+                // Check if we already counted this session to avoid spamming increments on navigation
+                const hasCounted = sessionStorage.getItem('visit_counted');
+                
+                if (!hasCounted) {
+                    const { data, error } = await supabase.rpc('increment_visitor_count');
+                    if (!error && data) {
+                        setVisitCount(data);
+                        sessionStorage.setItem('visit_counted', 'true');
+                    } else {
+                        // Fallback if RPC fails (e.g. table doesn't exist yet)
+                        console.warn("Could not increment visitor count:", error);
+                    }
+                } else {
+                    // Just fetch current count
+                    const { data, error } = await supabase.from('website_stats').select('value').eq('name', 'total_visits').single();
+                    if (data) setVisitCount(data.value);
+                }
+            } catch (e) {
+                console.warn("Visitor count error:", e);
+            }
+        };
+        incrementVisit();
+    }, []);
+
     const handleNavClick = (page: 'home' | 'products', sectionId?: string) => {
         setIsMenuOpen(false);
         if (currentPageIs(page) && sectionId) {
@@ -123,8 +153,11 @@ const SharedLayout: React.FC<SharedLayoutProps> = ({ children, onLoginClick, onN
                     </ul>
                     </div>
                 </div>
-                <div className="border-t border-gray-700 mt-8 pt-6 text-center text-gray-500">
-                    <p>&copy; {new Date().getFullYear()} ssfarmorganic. All rights reserved 2025.</p>
+                <div className="border-t border-gray-700 mt-8 pt-6 text-center">
+                    <p className="text-gray-500 text-sm">&copy; {new Date().getFullYear()} ssfarmorganic. All rights reserved 2025.</p>
+                    {visitCount !== null && (
+                        <p className="text-gray-600 text-xs mt-2 font-mono">Visitor Count: {visitCount.toLocaleString()}</p>
+                    )}
                 </div>
                 </div>
             </footer>

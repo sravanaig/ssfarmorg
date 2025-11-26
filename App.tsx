@@ -622,7 +622,7 @@ const App: React.FC = () => {
                             
                             {/* Shared views */}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
-                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
+                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} userRole={userRole} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}

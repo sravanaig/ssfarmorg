@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -31,11 +33,11 @@ export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
   heroSlides: [
-    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1620189507195-68309c04c4d5?q=80&w=2070&auto=format&fit=crop" },
-    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1495107333503-a287c29515a3?q=80&w=2070&auto=format&fit=crop" },
-    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1628268812585-1122394c6538?q=80&w=1974&auto=format&fit=crop" },
-    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" },
-    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1567523913054-486018a1a312?q=80&w=2070&auto=format&fit=crop" }
+    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "" },
+    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "" },
+    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "" },
+    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "" },
+    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "" }
   ],
   ourStory: {
     title: "Our Journey to Pure Milk",
@@ -117,6 +119,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [userRole, setUserRole] = useState<Profile['role'] | 'customer' | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   
   const [view, setView] = useState<View>('dashboard');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -235,6 +238,7 @@ const App: React.FC = () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
             setUserRole(null);
+            setUserEmail(null);
             setCustomers([]);
             setDeliveries([]);
             setOrders([]);
@@ -245,8 +249,105 @@ const App: React.FC = () => {
             await fetchPublicContent();
             return;
         }
+        
+        setUserEmail(user.email || null);
 
-        // --- PRIORITY 1: Check for Customer Record First ---
+        // --- PRIORITY 1: Check for Admin/Staff Profile ---
+        const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('role, status')
+            .eq('id', user.id)
+            .single();
+        
+        // If profile table missing, it's a schema mismatch. 
+        // PGRST116 means no row found (which is fine if they are a customer), 
+        // but 42P01 means table doesn't exist.
+        if (profileError && profileError.code !== 'PGRST116') { 
+            throw profileError;
+        }
+
+        if (profileData) { 
+            const role = profileData.role as Profile['role'];
+            setUserRole(role);
+    
+            if (role === 'staff') {
+                const [
+                    customersData,
+                    deliveriesData,
+                    ordersData,
+                    paymentsData,
+                    pendingDeliveriesData
+                ] = await Promise.all([
+                    fetchCustomersWithLegacyFallback(),
+                    fetchAll<Delivery>('deliveries'),
+                    fetchAll<Order>('orders'),
+                    fetchAll<Payment>('payments'),
+                    fetchAll<PendingDelivery>('pending_deliveries')
+                ]);
+                
+                setCustomers(customersData || []);
+                setDeliveries(deliveriesData || []);
+                setOrders(ordersData || []);
+                setPayments(paymentsData || []);
+                setPendingDeliveries(pendingDeliveriesData || []);
+                await fetchPublicContent();
+                return;
+            }
+            
+            // Admin / Super Admin data fetch
+            const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
+            if (usersError) throw usersError;
+            setManagedUsers((usersData as ManagedUser[]) || []);
+    
+            const [
+                customersData,
+                deliveriesData,
+                ordersData,
+                paymentsData,
+                pendingDeliveriesData,
+            ] = await Promise.all([
+                fetchCustomersWithLegacyFallback(),
+                fetchAll<Delivery>('deliveries'),
+                fetchAll<Order>('orders'),
+                fetchAll<Payment>('payments'),
+                fetchAll<PendingDelivery>('pending_deliveries')
+            ]);
+            
+            const { data: contentRows, error: contentError } = await supabase
+                .from('website_content')
+                .select('content')
+                .order('id', { ascending: false })
+                .limit(1);
+            
+            const contentData = contentRows?.[0];
+    
+            setCustomers(customersData || []);
+            setDeliveries(deliveriesData || []);
+            setOrders(ordersData || []);
+            setPayments(paymentsData || []);
+            setPendingDeliveries(pendingDeliveriesData || []);
+    
+            if (contentError) throw contentError;
+    
+            if (contentData) {
+                setWebsiteContent(contentData.content as WebsiteContent);
+            } else {
+                const { data: seededContent, error: seedError } = await supabase
+                  .from('website_content')
+                  .upsert({ userId: user.id, content: defaultContent }, { onConflict: 'userId' })
+                  .select('content')
+                  .single();
+                
+                if (seedError) throw seedError;
+                if (seededContent) {
+                    setWebsiteContent(seededContent.content as WebsiteContent);
+                }
+            }
+            // Successfully loaded admin/super_admin data
+            return; 
+        }
+
+        // --- PRIORITY 2: Check for Customer Record ---
         let { data: customerData, error: customerError } = await supabase
             .from('customers')
             .select('*')
@@ -298,121 +399,38 @@ const App: React.FC = () => {
             setDeliveries(deliveriesData || []);
             setPayments(paymentsData || []);
             await fetchPublicContent();
-            return; // EXIT EARLY: Do not process admin/staff logic
+            return; 
         }
 
-        // --- PRIORITY 2: Check for Admin/Staff Profile ---
-        const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('role, status')
-            .eq('id', user.id)
-            .single();
+        // --- ERROR CASE: Authenticated but no role found ---
+        console.warn("User authenticated but no profile or customer record found.");
+        setFetchError(`Account setup incomplete. We could not find a customer record for ${user.email?.split('@')[0] || 'this account'}. Please contact support.`);
+        setIsLoading(false);
         
-        if (profileError && profileError.code !== 'PGRST116') { 
-            throw profileError;
-        }
-
-        if (profileData) { 
-            const role = profileData.role as Profile['role'];
-            setUserRole(role);
-    
-            if (role === 'staff') {
-                const [
-                    customersData,
-                    deliveriesData,
-                    ordersData,
-                    paymentsData,
-                    pendingDeliveriesData
-                ] = await Promise.all([
-                    fetchCustomersWithLegacyFallback(),
-                    fetchAll<Delivery>('deliveries'),
-                    fetchAll<Order>('orders'),
-                    fetchAll<Payment>('payments'),
-                    fetchAll<PendingDelivery>('pending_deliveries')
-                ]);
-                
-                setCustomers(customersData || []);
-                setDeliveries(deliveriesData || []);
-                setOrders(ordersData || []);
-                setPayments(paymentsData || []);
-                setPendingDeliveries(pendingDeliveriesData || []);
-                await fetchPublicContent();
-                return;
-            }
-            
-            // Admin data fetch
-            const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
-            if (usersError) throw usersError;
-            setManagedUsers((usersData as ManagedUser[]) || []);
-    
-            const [
-                customersData,
-                deliveriesData,
-                ordersData,
-                paymentsData,
-                pendingDeliveriesData,
-            ] = await Promise.all([
-                fetchCustomersWithLegacyFallback(),
-                fetchAll<Delivery>('deliveries'),
-                fetchAll<Order>('orders'),
-                fetchAll<Payment>('payments'),
-                fetchAll<PendingDelivery>('pending_deliveries')
-            ]);
-            
-            const { data: contentRows, error: contentError } = await supabase
-                .from('website_content')
-                .select('content')
-                .order('id', { ascending: false })
-                .limit(1);
-            
-            const contentData = contentRows?.[0];
-    
-            setCustomers(customersData || []);
-            setDeliveries(deliveriesData || []);
-            setOrders(ordersData || []);
-            setPayments(paymentsData || []);
-            setPendingDeliveries(pendingDeliveriesData || []);
-    
-            if (contentError) throw contentError;
-    
-            if (contentData) {
-                setWebsiteContent(contentData.content as WebsiteContent);
-            } else {
-                const { data: seededContent, error: seedError } = await supabase
-                  .from('website_content')
-                  .upsert({ userId: user.id, content: defaultContent }, { onConflict: 'userId' })
-                  .select('content')
-                  .single();
-                
-                if (seedError) throw seedError;
-                if (seededContent) {
-                    setWebsiteContent(seededContent.content as WebsiteContent);
-                }
-            }
-        } else { 
-            // --- ERROR CASE: Authenticated but no role found ---
-            // DO NOT LOG OUT. Show specific error to allow debugging or self-healing retry.
-            console.warn("User authenticated but no profile or customer record found.");
-            setFetchError(`Account setup incomplete. We could not find a customer record for ${user.email?.split('@')[0] || 'this account'}. Please contact support.`);
-            setIsLoading(false);
-        }
     } catch (error: any) {
         console.error('Error fetching data:', error);
+        
         const friendlyMessage = getFriendlyErrorMessage(error);
-        const msg = (error.message || '').toLowerCase();
+        // Ensure we never set an object as the error message
+        const displayMsg = typeof friendlyMessage === 'string' ? friendlyMessage : 'An unexpected error occurred.';
+        const msgLower = displayMsg.toLowerCase();
+
         if (
-            msg.includes('relation "public.profiles" does not exist') ||
-            (msg.includes('column') && msg.includes('does not exist')) ||
-            (msg.includes('relation') && msg.includes('does not exist')) ||
-            msg.includes('could not find the table') ||
-            msg.includes('in the schema cache') ||
-            msg.includes('privileges') ||
-            msg.includes('infinite recursion detected') ||
-            msg.includes('structure of query does not match')
+            msgLower.includes('relation "public.profiles" does not exist') ||
+            msgLower.includes('relation "profiles" does not exist') ||
+            (msgLower.includes('column') && msgLower.includes('does not exist')) ||
+            (msgLower.includes('relation') && msgLower.includes('does not exist')) ||
+            msgLower.includes('could not find the table') ||
+            msgLower.includes('in the schema cache') ||
+            msgLower.includes('privileges') ||
+            msgLower.includes('access denied') ||
+            msgLower.includes('infinite recursion detected') ||
+            msgLower.includes('structure of query does not match') ||
+            error?.code === '42P01'
         ) {
-             setFetchError(`SCHEMA_MISMATCH: ${error.message}`);
+             setFetchError(`SCHEMA_MISMATCH: ${displayMsg}`);
         } else {
-            setFetchError(`Error loading data. ${friendlyMessage}`);
+            setFetchError(`Error loading data. ${displayMsg}`);
         }
     }
   }, []);
@@ -448,6 +466,7 @@ const App: React.FC = () => {
       } else {
         setIsAuthenticated(false);
         setUserRole(null);
+        setUserEmail(null);
         setCustomers([]);
         setDeliveries([]);
         setOrders([]);
@@ -525,6 +544,7 @@ const App: React.FC = () => {
     await supabase.auth.signOut();
     setCurrentPage('home');
     setUserRole(null);
+    setFetchError(null);
   };
 
   const handleSetView = (newView: View) => {
@@ -548,7 +568,7 @@ const App: React.FC = () => {
                     </button>
                     <h1 className="text-2xl font-bold text-gray-800 capitalize hidden md:block">{view.replace(/_/g, ' ')}</h1>
                      <div className="flex items-center">
-                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && userRole === 'admin' && (
+                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
                             <button onClick={() => setView('database')} className="mr-4 px-3 py-1.5 text-xs bg-red-100 text-red-700 border border-red-200 rounded-md hover:bg-red-200 font-semibold">
                                 DB Error! Fix Now
                             </button>
@@ -561,20 +581,42 @@ const App: React.FC = () => {
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && userRole === 'admin' ? (
+                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') ? (
                       <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
                     ) : fetchError ? (
-                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
-                        <p className="font-bold">Error</p>
-                        <p>{fetchError}</p>
+                      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-6 rounded-lg shadow-sm max-w-3xl mx-auto mt-10" role="alert">
+                        <h3 className="text-xl font-bold mb-2">Error</h3>
+                        <p className="mb-4 text-lg">{fetchError}</p>
+                        {fetchError.includes('Account setup incomplete') && (
+                             <p className="text-sm text-red-600 mb-6 bg-white p-3 rounded border border-red-200">
+                                 <strong>For Admin:</strong> This means a customer record for this phone number has not been added to the system yet. Please log in as Admin, go to Customers, and add this phone number. <br/><br/>
+                                 <strong>For Customer:</strong> Please contact us to have your account activated.
+                             </p>
+                        )}
+                        
+                        {/* Show DB Repair link for possible admins even in generic error state if they are sravanaig */}
+                        {(fetchError.includes('privileges') || fetchError.includes('relation') || (userEmail === 'sravanaig@gmail.com')) && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
+                             <div className="mt-2 mb-4">
+                                <button onClick={() => setView('database')} className="underline font-bold hover:text-red-900">
+                                    Click here to open Database Repair Tool
+                                </button>
+                             </div>
+                        )}
+
+                        <div className="mt-6">
+                             <button onClick={handleLogout} className="flex items-center justify-center w-full md:w-auto px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-md">
+                                <LogoutIcon className="h-5 w-5 mr-2" />
+                                Logout & Try Different Account
+                            </button>
+                        </div>
                       </div>
                     ) : (
                         <>
                             {/* Admin-only views */}
-                            {userRole === 'admin' && (
+                            {(userRole === 'admin' || userRole === 'super_admin') && (
                                 <>
                                     {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
-                                    {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} />}
+                                    {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} currentUserRole={userRole} />}
                                     {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
                                     {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
                                     {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
@@ -584,12 +626,12 @@ const App: React.FC = () => {
                             )}
                             
                             {/* Shared views */}
-                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} />}
-                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
+                            {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
+                            {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} userRole={userRole} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 
                             {/* Role-specific delivery view */}
-                            {view === 'deliveries' && userRole === 'admin' && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && (userRole === 'admin' || userRole === 'super_admin') && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
                             {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}

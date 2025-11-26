@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Customer, Order, Delivery, PendingDelivery } from '../types';
+import type { Customer, Order, Delivery, PendingDelivery, Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { SearchIcon, WhatsAppIcon } from './Icons';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
@@ -13,14 +14,17 @@ interface OrderManagerProps {
   setDeliveries: React.Dispatch<React.SetStateAction<Delivery[]>>;
   pendingDeliveries: PendingDelivery[];
   setPendingDeliveries: React.Dispatch<React.SetStateAction<PendingDelivery[]>>;
+  userRole: Profile['role'] | 'customer' | null;
 }
 
-const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries, pendingDeliveries, setPendingDeliveries }) => {
+const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrders, deliveries, setDeliveries, pendingDeliveries, setPendingDeliveries, userRole }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, number>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+
   const activeCustomers = useMemo(() => customers.filter(c => c.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [customers]);
 
   const filteredActiveCustomers = useMemo(() => {
@@ -47,16 +51,6 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
     });
     return orderMap;
   }, [orders, selectedDate]);
-
-  const pendingDeliveriesForDate = useMemo(() => {
-    const map = new Map<string, number>();
-    pendingDeliveries.forEach(pd => {
-        if (pd.date === selectedDate) {
-            map.set(pd.customerId, pd.quantity);
-        }
-    });
-    return map;
-  }, [pendingDeliveries, selectedDate]);
 
   const handleQuantityChange = (customerId: string, newQuantityStr: string) => {
     const newQuantity = parseFloat(newQuantityStr);
@@ -94,27 +88,13 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
             quantity,
         }));
 
-        // Data for ORDERS table (source of truth for this view)
+        // --- 1. Update Orders Table (Always) ---
         const ordersToUpsert = dataToUpsert.filter(o => o.quantity > 0);
         const customerIdsToDeleteOrders = dataToUpsert
             .filter(d => d.quantity === 0)
             .map(d => d.customerId)
             .filter(id => ordersForDate.has(id));
 
-        // Data for PENDING_DELIVERIES table (submission for approval)
-        const pendingDeliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
-        const customerIdsToDeletePending = dataToUpsert
-            .filter(d => d.quantity === 0)
-            .map(d => d.customerId)
-            .filter(id => pendingDeliveriesForDate.has(id));
-
-        // Data for DELIVERIES table (clearing previously approved entries)
-        const customerIdsWithChanges = dataToUpsert.map(d => d.customerId);
-        const deliveriesForDateMap = new Map(deliveries.filter(d => d.date === selectedDate).map(d => [d.customerId, d.quantity]));
-        const customerIdsToDeleteDeliveries = customerIdsWithChanges.filter(id => deliveriesForDateMap.has(id));
-
-
-        // Create promises for all database operations
         const orderUpsertPromise = ordersToUpsert.length > 0
             ? supabase.from('orders').upsert(ordersToUpsert, { onConflict: 'customerId,date' }).select()
             : Promise.resolve({ data: [], error: null });
@@ -122,32 +102,78 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         const orderDeletePromise = customerIdsToDeleteOrders.length > 0
             ? supabase.from('orders').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteOrders)
             : Promise.resolve({ error: null });
-        
-        const pendingDeliveryUpsertPromise = pendingDeliveriesToUpsert.length > 0
-            ? supabase.from('pending_deliveries').upsert(pendingDeliveriesToUpsert, { onConflict: 'customerId,date' }).select()
-            : Promise.resolve({ data: [], error: null });
 
-        const pendingDeliveryDeletePromise = customerIdsToDeletePending.length > 0
-            ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeletePending)
-            : Promise.resolve({ error: null });
+        // --- 2. Role-Based Logic for Deliveries/Pending ---
+        let pendingUpsertPromise = Promise.resolve({ data: [], error: null });
+        let pendingDeletePromise = Promise.resolve({ error: null });
+        let deliveryUpsertPromise = Promise.resolve({ data: [], error: null });
+        let deliveryDeletePromise = Promise.resolve({ error: null });
 
-        const deliveryDeletePromise = customerIdsToDeleteDeliveries.length > 0
-            ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteDeliveries)
-            : Promise.resolve({ error: null });
+        // Variables to help update local state later
+        let customerIdsToDeletePending: string[] = [];
+        let customerIdsToDeleteDeliveries: string[] = [];
 
+        if (isAdmin) {
+            // ADMIN FLOW: Auto-approve directly to deliveries
+            
+            // Upsert confirmed deliveries
+            const deliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
+            deliveryUpsertPromise = deliveriesToUpsert.length > 0
+                ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select()
+                : Promise.resolve({ data: [], error: null });
 
-        const [orderUpsertResult, orderDeleteResult, pendingUpsertResult, pendingDeleteResult, deliveryDeleteResult] = await Promise.all([
+            // Delete deliveries if quantity is 0 (cancellation)
+            customerIdsToDeleteDeliveries = dataToUpsert.filter(d => d.quantity === 0).map(d => d.customerId);
+            deliveryDeletePromise = customerIdsToDeleteDeliveries.length > 0
+                ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteDeliveries)
+                : Promise.resolve({ error: null });
+
+            // Clear pending entries for these customers to prevent "stale" pending requests
+            customerIdsToDeletePending = dataToUpsert.map(d => d.customerId);
+            pendingDeletePromise = customerIdsToDeletePending.length > 0
+                ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeletePending)
+                : Promise.resolve({ error: null });
+
+        } else {
+            // STAFF FLOW: Submit to Pending for approval
+            
+            // Upsert pending requests
+            const pendingDeliveriesToUpsert = dataToUpsert.filter(d => d.quantity > 0);
+            pendingUpsertPromise = pendingDeliveriesToUpsert.length > 0
+                ? supabase.from('pending_deliveries').upsert(pendingDeliveriesToUpsert, { onConflict: 'customerId,date' }).select()
+                : Promise.resolve({ data: [], error: null });
+
+            // Delete pending requests if quantity is 0
+            customerIdsToDeletePending = dataToUpsert.filter(d => d.quantity === 0).map(d => d.customerId);
+            pendingDeletePromise = customerIdsToDeletePending.length > 0
+                ? supabase.from('pending_deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeletePending)
+                : Promise.resolve({ error: null });
+
+            // Clear existing approved deliveries for these customers to force re-approval
+            // (Safe because we are submitting a new plan)
+            customerIdsToDeleteDeliveries = dataToUpsert.map(d => d.customerId);
+            deliveryDeletePromise = customerIdsToDeleteDeliveries.length > 0
+                ? supabase.from('deliveries').delete().eq('date', selectedDate).in('customerId', customerIdsToDeleteDeliveries)
+                : Promise.resolve({ error: null });
+        }
+
+        // Execute all promises
+        const [orderUpsertResult, orderDeleteResult, pendingUpsertResult, pendingDeleteResult, deliveryUpsertResult, deliveryDeleteResult] = await Promise.all([
             orderUpsertPromise,
             orderDeletePromise,
-            pendingDeliveryUpsertPromise,
-            pendingDeliveryDeletePromise,
+            pendingUpsertPromise,
+            pendingDeletePromise,
+            deliveryUpsertPromise,
             deliveryDeletePromise
         ]);
         
         if (orderUpsertResult.error) throw orderUpsertResult.error;
         if (orderDeleteResult.error) throw orderDeleteResult.error;
         if (pendingUpsertResult.error) throw pendingUpsertResult.error;
+        // @ts-ignore
         if (pendingDeleteResult.error) throw pendingDeleteResult.error;
+        if (deliveryUpsertResult.error) throw deliveryUpsertResult.error;
+        // @ts-ignore
         if (deliveryDeleteResult.error) throw deliveryDeleteResult.error;
 
         // --- Update local state ---
@@ -164,16 +190,30 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
         setPendingDeliveries(prev => {
             const afterDelete = prev.filter(pd => !(pd.date === selectedDate && customerIdsToDeletePending.includes(pd.customerId)));
             const updatedMap = new Map(afterDelete.map(pd => [`${pd.customerId}-${pd.date}`, pd]));
-            if (pendingUpsertResult.data) {
+            // Only update pending if staff flow (admin flow deletes them)
+            if (!isAdmin && pendingUpsertResult.data) {
                 (pendingUpsertResult.data as PendingDelivery[]).forEach(pd => updatedMap.set(`${pd.customerId}-${pd.date}`, pd));
             }
             return Array.from(updatedMap.values());
         });
         
-        setDeliveries(prev => prev.filter(d => !(d.date === selectedDate && customerIdsToDeleteDeliveries.includes(d.customerId))));
+        setDeliveries(prev => {
+            const afterDelete = prev.filter(d => !(d.date === selectedDate && customerIdsToDeleteDeliveries.includes(d.customerId)));
+            const updatedMap = new Map(afterDelete.map(d => [`${d.customerId}-${d.date}`, d]));
+            // Only update deliveries if admin flow
+            if (isAdmin && deliveryUpsertResult.data) {
+                (deliveryUpsertResult.data as Delivery[]).forEach(d => updatedMap.set(`${d.customerId}-${d.date}`, d));
+            }
+            return Array.from(updatedMap.values());
+        });
 
         setPendingChanges(new Map());
-        alert(`Successfully saved ${changes.length} orders and submitted them for delivery approval. Any previously approved deliveries for this date have been cleared.`);
+        
+        const successMsg = isAdmin 
+            ? `Successfully saved ${changes.length} orders and confirmed them as deliveries.` 
+            : `Successfully saved ${changes.length} orders and submitted them for delivery approval.`;
+            
+        alert(successMsg);
 
     } catch (error: any) {
         alert(`Error saving orders: ${getFriendlyErrorMessage(error)}`);
@@ -194,7 +234,7 @@ const OrderManager: React.FC<OrderManagerProps> = ({ customers, orders, setOrder
 
     if (changesMade > 0) {
         setPendingChanges(newChanges);
-        alert(`${changesMade} customers have been set to their default quantity. Click 'Save & Submit' to confirm.`);
+        alert(`${changesMade} customers have been set to their default quantity. Click '${isAdmin ? 'Save & Confirm' : 'Save & Submit'}' to confirm.`);
     } else {
         alert("All active customers already have an order entry or a pending change for this date.");
     }
@@ -344,7 +384,7 @@ ${orderLines}
                         disabled={isSaving} 
                         className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {isSaving ? 'Submitting...' : 'Save & Submit for Delivery'}
+                        {isSaving ? 'Processing...' : (isAdmin ? 'Save & Confirm Deliveries' : 'Save & Submit for Approval')}
                     </button>
                 </div>
             </div>
