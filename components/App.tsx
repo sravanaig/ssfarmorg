@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, projectRef } from './lib/supabaseClient';
 import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
@@ -24,11 +19,12 @@ import OrderManager from './components/OrderManager';
 import StaffDeliveryManager from './components/StaffDeliveryManager';
 import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
+import CustomerLoginManager from './components/CustomerLoginManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
 import CalendarView from './components/CalendarView';
 import CustomerDashboard from './components/CustomerDashboard';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
@@ -438,7 +434,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
-    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
+    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'customer_logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
         setView('dashboard');
     }
   }, [userRole, view]);
@@ -617,6 +613,7 @@ const App: React.FC = () => {
                                 <>
                                     {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
                                     {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} currentUserRole={userRole} />}
+                                    {view === 'customer_logins' && <CustomerLoginManager customers={customers} setCustomers={setCustomers} />}
                                     {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
                                     {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
                                     {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}

@@ -598,6 +598,29 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_set_customer_password(uuid, text) TO authenticated;
 
+-- DELETE Customer Login Only
+CREATE OR REPLACE FUNCTION admin_delete_customer_login(p_customer_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id uuid;
+BEGIN
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'Access denied';
+    END IF;
+    
+    SELECT "userId" INTO v_user_id FROM public.customers WHERE id = p_customer_id;
+    
+    IF v_user_id IS NOT NULL THEN
+        DELETE FROM auth.users WHERE id = v_user_id;
+    END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION admin_delete_customer_login(uuid) TO authenticated;
+
 
 -- Admin Delete All Customers (Danger)
 CREATE OR REPLACE FUNCTION admin_delete_all_customers()

@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon } from './Icons';
+import { UsersIcon, TruckIcon, BillIcon, CreditCardIcon, XIcon, DashboardIcon, PencilIcon, DatabaseIcon, ClipboardIcon, CheckIcon as ApprovalIcon, CalendarIcon, KeyIcon } from './Icons';
 import type { Profile } from '../types';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins';
 
 interface SideNavProps {
   activeView: View;
@@ -44,7 +44,8 @@ const staffItems = [
 const adminItems = [
     { view: 'dashboard', label: 'Dashboard', icon: <DashboardIcon className="h-5 w-5" /> },
     { view: 'customers', label: 'Customers', icon: <UsersIcon className="h-5 w-5" /> },
-    { view: 'logins', label: 'Logins', icon: <UsersIcon className="h-5 w-5" /> },
+    { view: 'customer_logins', label: 'Customer Logins', icon: <KeyIcon className="h-5 w-5" /> },
+    { view: 'logins', label: 'Staff Logins', icon: <UsersIcon className="h-5 w-5" /> },
     { view: 'orders', label: 'Orders', icon: <ClipboardIcon className="h-5 w-5" /> },
     { view: 'deliveries', label: 'Deliveries', icon: <TruckIcon className="h-5 w-5" /> }, // Admin view
     { view: 'delivery_approvals', label: 'Approvals', icon: <ApprovalIcon className="h-5 w-5" /> },
