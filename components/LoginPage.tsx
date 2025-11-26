@@ -1,7 +1,6 @@
 
-
 import React, { useState } from 'react';
-import { ArrowLeftIcon, SpinnerIcon } from './Icons';
+import { ArrowLeftIcon, SpinnerIcon, EyeIcon, EyeOffIcon } from './Icons';
 
 interface LoginPageProps {
     onAdminLogin: (email: string, pass: string) => Promise<{ success: boolean, error?: string }>;
@@ -16,6 +15,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
     const [mode, setMode] = useState<LoginMode>('customer');
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
     const [isLoading, setIsLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     
     // Admin State
     const [email, setEmail] = useState('');
@@ -35,14 +35,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
         setCustomerPassword('');
         setErrors({});
         setIsLoading(false);
+        setShowPassword(false);
     };
 
     const handleAdminSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrors({});
+        const cleanEmail = email.trim();
+        const cleanPassword = adminPassword.trim();
+
         const newErrors: { [key: string]: string } = {};
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+        if (!emailRegex.test(cleanEmail)) {
             newErrors.email = "Please enter a valid email address.";
         }
         if (Object.keys(newErrors).length > 0) {
@@ -51,7 +55,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
         }
         
         setIsLoading(true);
-        const result = await onAdminLogin(email, adminPassword);
+        const result = await onAdminLogin(cleanEmail, cleanPassword);
         if (!result.success) {
             setErrors({ form: result.error || 'An error occurred.' });
         }
@@ -61,16 +65,26 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
     const handleCustomerLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrors({});
-        if (!/^\d{10}$/.test(phone)) {
+        const cleanPhone = phone.trim();
+        const cleanPassword = customerPassword.trim();
+
+        if (!/^\d{10}$/.test(cleanPhone)) {
             setErrors({ phone: 'Please enter a valid 10-digit mobile number.' });
             return;
         }
         
         setIsLoading(true);
-        const email = `${phone}@ssfarmorganic.local`;
-        const result = await onCustomerLogin(email, customerPassword);
+        const customerEmail = `${cleanPhone}@ssfarmorganic.local`;
+        console.log("Attempting customer login with:", customerEmail); // Debug log
+
+        const result = await onCustomerLogin(customerEmail, cleanPassword);
         if (!result.success) {
-            setErrors({ form: result.error || 'Login failed. Please try again.' });
+            let errorMsg = result.error || 'Login failed. Please try again.';
+            // Provide a more specific hint for invalid credentials
+            if (errorMsg.includes('Invalid mobile number') || errorMsg.includes('Invalid login credentials') || errorMsg.includes('Email not confirmed')) {
+                 errorMsg = 'Invalid credentials. Please check your mobile number and password.\n\n(Note: If you haven\'t set a custom password, try your mobile number followed by a *, e.g. 9876543210*)';
+            }
+            setErrors({ form: errorMsg });
         }
         // On success, the App component will handle navigation
         setIsLoading(false);
@@ -108,7 +122,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
 
                     {errors.form && (
                         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                            <span className="block sm:inline">{errors.form}</span>
+                            <span className="block whitespace-pre-wrap">{errors.form}</span>
                         </div>
                     )}
 
@@ -121,7 +135,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
                             </div>
                             <div>
                                 <label htmlFor="password"className="block text-sm font-medium text-gray-700">Password</label>
-                                <input id="password" type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                                <div className="relative mt-1">
+                                    <input 
+                                        id="password" 
+                                        type={showPassword ? "text" : "password"} 
+                                        value={adminPassword} 
+                                        onChange={e => setAdminPassword(e.target.value)} 
+                                        required 
+                                        className="block w-full border border-gray-300 rounded-md shadow-sm p-2 pr-10" 
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700 focus:outline-none"
+                                    >
+                                        {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                                    </button>
+                                </div>
                             </div>
                             <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                                {isLoading ? 'Signing in...' : 'Sign in'}
@@ -139,7 +169,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
                             </div>
                              <div>
                                 <label htmlFor="customer-password"className="block text-sm font-medium text-gray-700">Password</label>
-                                <input id="customer-password" type="password" value={customerPassword} onChange={e => setCustomerPassword(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                                <div className="relative mt-1">
+                                    <input 
+                                        id="customer-password" 
+                                        type={showPassword ? "text" : "password"} 
+                                        value={customerPassword} 
+                                        onChange={e => setCustomerPassword(e.target.value)} 
+                                        required 
+                                        className="block w-full border border-gray-300 rounded-md shadow-sm p-2 pr-10" 
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700 focus:outline-none"
+                                    >
+                                        {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                                    </button>
+                                </div>
                                 <p className="mt-2 text-xs text-gray-500">Hint: Your password is your 10-digit mobile number followed by a *. For example: 9876543210*</p>
                             </div>
                             <button type="submit" disabled={isLoading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">

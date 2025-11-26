@@ -42,18 +42,27 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const [newPassword, setNewPassword] = useState('');
     const [isResetting, setIsResetting] = useState(false);
     const [resetError, setResetError] = useState('');
+    
+    // Ref to track which customer we are editing to prevent overwriting form data 
+    // when the parent component updates the customer object (e.g., after creating a login)
+    const prevCustomerIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (customerToEdit) {
-            setName(customerToEdit.name);
-            setAddress(customerToEdit.address);
-            setPhone(customerToEdit.phone ? customerToEdit.phone.replace('+91', '') : '');
-            setEmail(customerToEdit.email || '');
-            setMilkPrice(customerToEdit.milkPrice);
-            setDefaultQuantity(customerToEdit.defaultQuantity);
-            setStatus(customerToEdit.status || 'active');
-            setPreviousBalance(customerToEdit.previousBalance || 0);
-            setBalanceAsOfDate(customerToEdit.balanceAsOfDate || '');
+            // Only reset form fields if we switched to a different customer.
+            // This preserves unsaved edits if the parent updates the same customer object (e.g. adding userId).
+            if (prevCustomerIdRef.current !== customerToEdit.id) {
+                setName(customerToEdit.name);
+                setAddress(customerToEdit.address);
+                setPhone(customerToEdit.phone ? customerToEdit.phone.replace('+91', '') : '');
+                setEmail(customerToEdit.email || '');
+                setMilkPrice(customerToEdit.milkPrice);
+                setDefaultQuantity(customerToEdit.defaultQuantity);
+                setStatus(customerToEdit.status || 'active');
+                setPreviousBalance(customerToEdit.previousBalance || 0);
+                setBalanceAsOfDate(customerToEdit.balanceAsOfDate || '');
+                prevCustomerIdRef.current = customerToEdit.id;
+            }
         } else {
             setName('');
             setAddress('');
@@ -64,6 +73,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
             setStatus('active');
             setPreviousBalance(0);
             setBalanceAsOfDate('');
+            prevCustomerIdRef.current = null;
         }
         setErrors({});
     }, [customerToEdit]);
@@ -103,12 +113,13 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         e.stopPropagation(); // STOP event from bubbling up to the parent form
         
         setResetError('');
-        if (newPassword.length < 6) {
+        const cleanPassword = newPassword.trim();
+        if (cleanPassword.length < 6) {
             setResetError('Password must be at least 6 characters long.');
             return;
         }
         setIsResetting(true);
-        const { success } = await onResetPassword(newPassword);
+        const { success } = await onResetPassword(cleanPassword);
         setIsResetting(false);
         if (success) {
             setNewPassword('');
@@ -221,20 +232,36 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                 {customerToEdit && (
                     <div className="mt-6 pt-4 border-t">
                         <h4 className="text-sm font-medium text-gray-600 mb-2">Login Management</h4>
-                        <p className="text-xs text-gray-500 mb-2">
-                            {customerToEdit.userId ? 
-                                `This customer has an active login. You can reset their password below.` : 
-                                `This customer does not have a login yet. Saving their details with a valid phone number will automatically create one.`
-                            }
-                        </p>
-                        {customerToEdit.userId && (
-                             <button 
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="text-sm text-gray-600">
+                                {customerToEdit.userId ? (
+                                    <span className="flex items-center text-green-600"><CheckIcon className="h-4 w-4 mr-1"/> Login Active</span>
+                                ) : (
+                                    <span className="text-gray-500">No active login found.</span>
+                                )}
+                            </div>
+                            <button 
                                 type="button" 
-                                onClick={() => setIsResetPasswordModalOpen(true)} 
-                                className="px-4 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+                                onClick={() => {
+                                    // Pre-fill password logic if phone available
+                                    if (!customerToEdit.userId && customerToEdit.phone && customerToEdit.phone.length >= 10) {
+                                        // Extract last 10 digits
+                                        const cleanPhone = customerToEdit.phone.replace(/\D/g, '').slice(-10);
+                                        setNewPassword(cleanPhone + "*");
+                                    } else {
+                                        setNewPassword("");
+                                    }
+                                    setIsResetPasswordModalOpen(true);
+                                }} 
+                                className={`px-4 py-2 text-sm text-white rounded-md shadow-sm transition-colors ${customerToEdit.userId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700'}`}
                             >
-                                Reset Customer Password
+                                {customerToEdit.userId ? 'Reset Password' : 'Create Login Credentials'}
                             </button>
+                        </div>
+                        {!customerToEdit.userId && (
+                             <p className="text-xs text-gray-500 mt-2">
+                                Creating a login will allow the customer to access their dashboard using their phone number.
+                            </p>
                         )}
                     </div>
                 )}
@@ -246,7 +273,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                     </button>
                 </div>
             </form>
-            <Modal isOpen={isResetPasswordModalOpen} onClose={() => setIsResetPasswordModalOpen(false)} title={`Reset Password for ${customerToEdit?.name}`}>
+            <Modal isOpen={isResetPasswordModalOpen} onClose={() => setIsResetPasswordModalOpen(false)} title={customerToEdit?.userId ? `Reset Password for ${customerToEdit?.name}` : `Create Login for ${customerToEdit?.name}`}>
                 <form onSubmit={handleResetSubmit} className="space-y-4">
                     {resetError && <p className="text-xs text-red-600">{resetError}</p>}
                     <div>
@@ -258,13 +285,13 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                             required 
                             className={`mt-1 block w-full border ${resetError ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3`}
                         />
-                         <p className="mt-2 text-xs text-gray-500">The customer will need to be informed of this new password manually.</p>
+                         <p className="mt-2 text-xs text-gray-500">The customer will need to be informed of this password manually.</p>
                     </div>
                     <div className="flex justify-end pt-4 space-x-2">
                         <button type="button" onClick={() => setIsResetPasswordModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
                         <button type="submit" disabled={isResetting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center">
                             {isResetting && <SpinnerIcon className="animate-spin h-4 w-4 mr-2" />}
-                            {isResetting ? 'Resetting...' : 'Set New Password'}
+                            {isResetting ? 'Processing...' : (customerToEdit?.userId ? 'Reset Password' : 'Create Login')}
                         </button>
                     </div>
                 </form>
@@ -361,11 +388,16 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 balanceAsOfDate: (data as any).balanceAsOfDate ?? null,
             };
             setCustomers(prev => [...prev, newCustomer].sort((a,b) => a.name.localeCompare(b.name)));
+            setIsModalOpen(false);
             
-            // Automatically set default password
+            // Automatically set default password and ALERT the admin
             await setDefaultPasswordIfNeeded(newCustomer.id, newCustomer.phone);
+            
+            if (newCustomer.phone && newCustomer.phone.length > 10) {
+                const displayPhone = newCustomer.phone.slice(3);
+                alert(`Customer added successfully!\n\nA login has been created.\nUsername: ${displayPhone}\nDefault Password: ${displayPhone}*`);
+            }
         }
-        setIsModalOpen(false);
     } catch (error: any) {
         alert(getFriendlyErrorMessage(error));
     } finally {
@@ -419,19 +451,29 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
 
   const handleResetPassword = async (customerId: string, newPassword: string): Promise<{success: boolean}> => {
     try {
-        const { error } = await supabase.rpc('admin_set_customer_password', {
+        const { data: userId, error } = await supabase.rpc('admin_set_customer_password', {
             p_customer_id: customerId,
             p_password: newPassword
         });
 
         if (error) throw error;
         
-        alert(`Password has been successfully reset to:\n\n${newPassword}\n\nPlease share this with the customer.`);
+        // Update local state to reflect new login status immediately
+        setCustomers(prev => prev.map(c => 
+            c.id === customerId ? { ...c, userId: userId } : c
+        ));
+        
+        // Also update the currently editing customer object so the modal UI updates
+        if (customerToEdit && customerToEdit.id === customerId) {
+             setCustomerToEdit(prev => prev ? { ...prev, userId: userId } : prev);
+        }
+        
+        alert(`Login credentials successfully ${customerToEdit?.userId ? 'reset' : 'created'}.\n\nPassword: ${newPassword}\n\nPlease share this with the customer.`);
         return { success: true };
 
     } catch (error: any) {
         const msg = getFriendlyErrorMessage(error);
-        alert(`Failed to reset password: ${msg}`);
+        alert(`Failed to process request: ${msg}`);
         return { success: false };
     }
   };

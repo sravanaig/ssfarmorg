@@ -516,7 +516,7 @@ ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
 -- STEP 10: Helper Functions
 
--- Reset Customer Password (Admin)
+-- Reset Customer Password (Admin) - UPDATED FOR ROBUSTNESS
 CREATE OR REPLACE FUNCTION admin_set_customer_password(p_customer_id uuid, p_password text)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -527,6 +527,7 @@ DECLARE
   v_customer_phone text;
   v_user_id uuid;
   v_email text;
+  v_rows_updated int;
 BEGIN
   IF NOT check_user_role('admin') THEN
     RAISE EXCEPTION 'Access denied';
@@ -544,20 +545,39 @@ BEGIN
   v_email := v_customer_phone || '@ssfarmorganic.local';
   
   IF v_user_id IS NOT NULL THEN
-    -- Update existing user
+    -- Attempt to update existing user linked to customer
     UPDATE auth.users 
-    SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')) 
+    SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
+        email_confirmed_at = COALESCE(email_confirmed_at, now()),
+        updated_at = now(),
+        raw_app_meta_data = COALESCE(raw_app_meta_data, '{"provider": "email", "providers": ["email"]}'::jsonb),
+        raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb)
     WHERE id = v_user_id;
-  ELSE
-    -- Create new user
+    
+    GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
+    
+    -- If 0 rows updated, the user ID is stale (user deleted from auth but not customer). Treat as new/lookup.
+    IF v_rows_updated = 0 THEN
+        v_user_id := NULL;
+    END IF;
+  END IF;
+  
+  -- If v_user_id is NULL (either originally null or was stale)
+  IF v_user_id IS NULL THEN
     -- Check if user exists by email first (orphaned user case)
     SELECT id INTO v_user_id FROM auth.users WHERE email = v_email;
     
     IF v_user_id IS NOT NULL THEN
+       -- User exists by email, update password and ensure confirmed
        UPDATE auth.users 
-       SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')) 
+       SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
+           email_confirmed_at = COALESCE(email_confirmed_at, now()),
+           updated_at = now(),
+           raw_app_meta_data = COALESCE(raw_app_meta_data, '{"provider": "email", "providers": ["email"]}'::jsonb),
+           raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb)
        WHERE id = v_user_id;
     ELSE
+       -- Create new user
        v_user_id := gen_random_uuid();
        INSERT INTO auth.users (
          instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -569,7 +589,7 @@ BEGIN
        );
     END IF;
     
-    -- Link
+    -- Link the user ID to the customer record
     UPDATE public.customers SET "userId" = v_user_id WHERE id = p_customer_id;
   END IF;
   
@@ -627,6 +647,12 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION link_customer_to_auth_user(text) TO authenticated;
+
+-- BULK FIX: Confirm all customer accounts (Fix "Invalid login" error for unconfirmed users)
+UPDATE auth.users
+SET email_confirmed_at = now(), updated_at = now()
+WHERE email LIKE '%@ssfarmorganic.local' AND email_confirmed_at IS NULL;
+
 
 -- HIT COUNTER SETUP
 CREATE TABLE IF NOT EXISTS public.website_stats (
