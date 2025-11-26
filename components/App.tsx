@@ -432,9 +432,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const allowedAdminViews: View[] = ['dashboard', 'customers', 'logins', 'customer_logins', 'orders', 'delivery_approvals', 'deliveries', 'calendar', 'bills', 'payments', 'cms', 'database'];
+    
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
-    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'customer_logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
+    } else if (userRole === 'admin' && !allowedAdminViews.includes(view)) {
         setView('dashboard');
     }
   }, [userRole, view]);

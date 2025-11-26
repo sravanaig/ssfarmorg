@@ -19,13 +19,19 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
+  // Robust filtering that handles nulls/undefined safely
   const filteredCustomers = useMemo(() => {
+    if (!customers || !Array.isArray(customers)) return [];
     if (!searchTerm.trim()) return customers;
+    
     const lowerFilter = searchTerm.toLowerCase();
-    return customers.filter(c => 
-        c.name.toLowerCase().includes(lowerFilter) || 
-        c.phone.includes(lowerFilter)
-    );
+    
+    return customers.filter(c => {
+        if (!c) return false;
+        const name = c.name ? c.name.toLowerCase() : '';
+        const phone = c.phone ? c.phone.toLowerCase() : '';
+        return name.includes(lowerFilter) || phone.includes(lowerFilter);
+    });
   }, [customers, searchTerm]);
 
   const handleOpenModal = (customer: Customer) => {
@@ -97,6 +103,10 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
     }
   };
 
+  if (!customers) {
+      return <div className="p-8 text-center text-gray-500">Loading customers...</div>;
+  }
+
   return (
     <div>
         <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
@@ -130,7 +140,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                             filteredCustomers.map(customer => (
                                 <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
                                     <td className="px-6 py-4 font-medium text-gray-900">{customer.name}</td>
-                                    <td className="px-6 py-4">{customer.phone}</td>
+                                    <td className="px-6 py-4">{customer.phone || 'N/A'}</td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                                             customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
@@ -173,7 +183,9 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                         ) : (
                             <tr>
                                 <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
-                                    No customers found matching your search.
+                                    {customers.length === 0 
+                                        ? "No customers found in the database." 
+                                        : "No customers found matching your search."}
                                 </td>
                             </tr>
                         )}
@@ -193,7 +205,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                         <div className="bg-blue-50 p-4 rounded-md mb-4">
                             <p className="text-sm text-blue-800">
                                 <strong>Customer:</strong> {selectedCustomer?.name}<br/>
-                                <strong>Login ID:</strong> {selectedCustomer?.phone}
+                                <strong>Login ID:</strong> {selectedCustomer?.phone || 'No phone set'}
                             </p>
                         </div>
                         <div>
