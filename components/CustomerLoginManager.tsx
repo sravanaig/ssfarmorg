@@ -103,8 +103,16 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
     }
   };
 
+  // Explicitly handle the loading/undefined state to prevent blank screens
   if (!customers) {
-      return <div className="p-8 text-center text-gray-500">Loading customers...</div>;
+      return (
+        <div className="p-12 flex justify-center items-center">
+            <div className="flex flex-col items-center">
+                <SpinnerIcon className="h-8 w-8 text-blue-500 animate-spin mb-2" />
+                <p className="text-gray-500">Loading customer data...</p>
+            </div>
+        </div>
+      );
   }
 
   return (
@@ -182,7 +190,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                                     {customers.length === 0 
                                         ? "No customers found in the database." 
                                         : "No customers found matching your search."}
