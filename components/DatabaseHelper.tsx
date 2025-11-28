@@ -370,6 +370,10 @@ CREATE TABLE IF NOT EXISTS public.customers (
 DROP INDEX IF EXISTS customers_phone_unique_not_null_idx;
 CREATE UNIQUE INDEX customers_phone_unique_not_null_idx ON public.customers (phone) WHERE phone IS NOT NULL AND phone <> '';
 
+-- UPDATE CUSTOMERS TABLE FOR LOCATION
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "locationLat" double precision;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "locationLng" double precision;
+
 -- Other tables (Orders, Deliveries, etc.)
 CREATE TABLE IF NOT EXISTS public.orders (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,

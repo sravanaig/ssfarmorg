@@ -20,11 +20,12 @@ import StaffDeliveryManager from './components/StaffDeliveryManager';
 import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
 import CustomerLoginManager from './components/CustomerLoginManager';
+import LocationManager from './components/LocationManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
 import CalendarView from './components/CalendarView';
 import CustomerDashboard from './components/CustomerDashboard';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins' | 'locations';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
@@ -432,7 +433,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const allowedAdminViews: View[] = ['dashboard', 'customers', 'logins', 'customer_logins', 'orders', 'delivery_approvals', 'deliveries', 'calendar', 'bills', 'payments', 'cms', 'database'];
+    const allowedAdminViews: View[] = ['dashboard', 'customers', 'logins', 'customer_logins', 'locations', 'orders', 'delivery_approvals', 'deliveries', 'calendar', 'bills', 'payments', 'cms', 'database'];
     
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
@@ -626,6 +627,7 @@ const App: React.FC = () => {
                             
                             {/* Shared views */}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
+                            {view === 'locations' && <LocationManager customers={customers} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} userRole={userRole} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 

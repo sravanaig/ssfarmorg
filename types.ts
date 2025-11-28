@@ -11,6 +11,8 @@ export interface Customer {
   balanceAsOfDate: string | null;
   userId?: string;
   email?: string;
+  locationLat?: number;
+  locationLng?: number;
 }
 
 export interface Delivery {

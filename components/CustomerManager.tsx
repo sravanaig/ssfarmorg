@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Customer, Profile } from '../types';
 import Modal from './Modal';
-import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon, SpinnerIcon } from './Icons';
+import { PlusIcon, EditIcon, TrashIcon, UploadIcon, DownloadIcon, CheckIcon, SearchIcon, SpinnerIcon, MapPinIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -36,6 +36,10 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const [status, setStatus] = useState<'active' | 'inactive'>('active');
     const [previousBalance, setPreviousBalance] = useState(0);
     const [balanceAsOfDate, setBalanceAsOfDate] = useState('');
+    const [locationLat, setLocationLat] = useState<number | undefined>(undefined);
+    const [locationLng, setLocationLng] = useState<number | undefined>(undefined);
+    const [isLocating, setIsLocating] = useState(false);
+    
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
     const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
@@ -61,6 +65,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                 setStatus(customerToEdit.status || 'active');
                 setPreviousBalance(customerToEdit.previousBalance || 0);
                 setBalanceAsOfDate(customerToEdit.balanceAsOfDate || '');
+                setLocationLat(customerToEdit.locationLat);
+                setLocationLng(customerToEdit.locationLng);
                 prevCustomerIdRef.current = customerToEdit.id;
             }
         } else {
@@ -73,6 +79,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
             setStatus('active');
             setPreviousBalance(0);
             setBalanceAsOfDate('');
+            setLocationLat(undefined);
+            setLocationLng(undefined);
             prevCustomerIdRef.current = null;
         }
         setErrors({});
@@ -104,7 +112,19 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         e.preventDefault();
         if (validate()) {
             const formattedPhone = phone ? `+91${phone.replace(/\D/g, '').slice(-10)}` : '';
-            onSubmit({ name, address, phone: formattedPhone, email, milkPrice, defaultQuantity, status, previousBalance, balanceAsOfDate: balanceAsOfDate || null });
+            onSubmit({ 
+                name, 
+                address, 
+                phone: formattedPhone, 
+                email, 
+                milkPrice, 
+                defaultQuantity, 
+                status, 
+                previousBalance, 
+                balanceAsOfDate: balanceAsOfDate || null,
+                locationLat,
+                locationLng
+            });
         }
     };
 
@@ -127,6 +147,26 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         }
     };
 
+    const handleGetLocation = () => {
+        if (!navigator.geolocation) {
+            alert('Geolocation is not supported by your browser');
+            return;
+        }
+
+        setIsLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setLocationLat(position.coords.latitude);
+                setLocationLng(position.coords.longitude);
+                setIsLocating(false);
+            },
+            (error) => {
+                setIsLocating(false);
+                alert(`Unable to retrieve location: ${error.message}`);
+            }
+        );
+    };
+
     return (
         <>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -140,6 +180,47 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                     <input type="text" value={address} onChange={e => setAddress(e.target.value)} required className={`mt-1 block w-full border ${errors.address ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`} />
                     {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
                 </div>
+                
+                {/* Location Section */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">GPS Location</label>
+                    <div className="mt-1 flex space-x-2">
+                        <button
+                            type="button"
+                            onClick={handleGetLocation}
+                            disabled={isLocating}
+                            className="flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+                        >
+                            {isLocating ? <SpinnerIcon className="h-4 w-4 animate-spin mr-2"/> : <MapPinIcon className="h-4 w-4 mr-2 text-red-500"/>}
+                            {isLocating ? 'Locating...' : 'Capture Current Location'}
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500">Latitude</label>
+                            <input 
+                                type="number" 
+                                step="any"
+                                value={locationLat ?? ''} 
+                                onChange={e => setLocationLat(e.target.value ? parseFloat(e.target.value) : undefined)}
+                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm bg-gray-50"
+                                placeholder="0.000000"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500">Longitude</label>
+                            <input 
+                                type="number" 
+                                step="any"
+                                value={locationLng ?? ''} 
+                                onChange={e => setLocationLng(e.target.value ? parseFloat(e.target.value) : undefined)}
+                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm bg-gray-50"
+                                placeholder="0.000000"
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Mobile Number (for Login)</label>
@@ -524,22 +605,22 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   };
 
   const handleExport = () => {
-    const headers = ['name', 'address', 'phone', 'email', 'milkPrice', 'defaultQuantity', 'status', 'previousBalance', 'balanceAsOfDate'];
+    const headers = ['name', 'address', 'phone', 'email', 'milkPrice', 'defaultQuantity', 'status', 'previousBalance', 'balanceAsOfDate', 'locationLat', 'locationLng'];
     const csvRows = [
         headers.join(','),
         ...customers.map(c => headers.map(h => {
           const key = h as keyof Customer;
-          if (key === 'balanceAsOfDate' || key === 'previousBalance' || key === 'email') {
+          if (key === 'balanceAsOfDate' || key === 'previousBalance' || key === 'email' || key === 'locationLat' || key === 'locationLng') {
             return c[key] ?? '';
           }
-          return c[key as keyof Omit<Customer, 'id' | 'userId' | 'previousBalance' | 'balanceAsOfDate' | 'email'>];
+          return c[key as keyof Omit<Customer, 'id' | 'userId' | 'previousBalance' | 'balanceAsOfDate' | 'email' | 'locationLat' | 'locationLng'>];
         }).join(','))
     ];
     downloadCSV(csvRows.join('\n'), 'customers.csv');
   };
   
   const handleDownloadTemplate = () => {
-    const headers = 'name,address,phone,email,milkPrice,defaultQuantity,status,previousBalance,balanceAsOfDate';
+    const headers = 'name,address,phone,email,milkPrice,defaultQuantity,status,previousBalance,balanceAsOfDate,locationLat,locationLng';
     downloadCSV(headers, 'customer_template.csv');
   };
 
@@ -571,6 +652,9 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
             const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
 
+            const lat = parseFloat(getColumnValue('locationLat'));
+            const lng = parseFloat(getColumnValue('locationLng'));
+
             return {
                 name: getColumnValue('name'),
                 address: getColumnValue('address'),
@@ -581,6 +665,8 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 status: status as 'active' | 'inactive',
                 previousBalance: parseFloat(getColumnValue('previousBalance')) || 0,
                 balanceAsOfDate: getColumnValue('balanceAsOfDate') || null,
+                locationLat: isNaN(lat) ? undefined : lat,
+                locationLng: isNaN(lng) ? undefined : lng,
             };
         }).filter(customer => customer.name);
 
@@ -720,6 +806,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                 <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                     <tr>
                                         <th scope="col" className="px-6 py-3">Name</th>
+                                        <th scope="col" className="px-6 py-3">Address</th>
                                         <th scope="col" className="px-6 py-3">Login Phone</th>
                                         <th scope="col" className="px-6 py-3">Status</th>
                                         {!isReadOnly && <th scope="col" className="px-6 py-3 text-right">Actions</th>}
@@ -729,6 +816,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                     {filteredCustomers.map(customer => (
                                         <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
                                             <th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.name}</th>
+                                            <td className="px-6 py-4 flex items-center">
+                                                {customer.address}
+                                                {customer.locationLat && customer.locationLng && (
+                                                    <a 
+                                                        href={`https://www.google.com/maps/search/?api=1&query=${customer.locationLat},${customer.locationLng}`} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="ml-2 text-blue-500 hover:text-blue-700"
+                                                        title="Open in Google Maps"
+                                                    >
+                                                        <MapPinIcon className="h-5 w-5" />
+                                                    </a>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4">{customer.phone || 'N/A'}</td>
                                             <td className="px-6 py-4">
                                                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
@@ -766,7 +867,20 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                             </span>
                                         </div>
                                         <div className="text-sm text-gray-600 space-y-1">
-                                            <p><strong className="font-medium">Address:</strong> {customer.address}</p>
+                                            <div className="flex items-center">
+                                                <p><strong className="font-medium">Address:</strong> {customer.address}</p>
+                                                {customer.locationLat && customer.locationLng && (
+                                                    <a 
+                                                        href={`https://www.google.com/maps/search/?api=1&query=${customer.locationLat},${customer.locationLng}`} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="ml-2 text-blue-500 hover:text-blue-700"
+                                                        title="Open in Google Maps"
+                                                    >
+                                                        <MapPinIcon className="h-5 w-5" />
+                                                    </a>
+                                                )}
+                                            </div>
                                             <p><strong className="font-medium">Phone:</strong> {customer.phone || 'N/A'}</p>
                                             {customer.userId && (
                                                 <p className="font-semibold text-green-600 flex items-center"><CheckIcon className="h-4 w-4 mr-1"/> Login Active</p>
