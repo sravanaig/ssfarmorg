@@ -137,7 +137,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                     <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                         <tr>
                             <th scope="col" className="px-6 py-3">Customer Name</th>
-                            <th scope="col" className="px-6 py-3">Mobile (Login ID)</th>
+                            <th scope="col" className="px-6 py-3">Login ID (Mobile)</th>
                             <th scope="col" className="px-6 py-3">Status</th>
                             <th scope="col" className="px-6 py-3">Login Status</th>
                             <th scope="col" className="px-6 py-3 text-right">Actions</th>
@@ -145,10 +145,12 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                     </thead>
                     <tbody>
                         {filteredCustomers.length > 0 ? (
-                            filteredCustomers.map(customer => (
+                            filteredCustomers.map(customer => {
+                                const displayPhone = customer.phone ? customer.phone.replace(/\D/g, '').slice(-10) : 'N/A';
+                                return (
                                 <tr key={customer.id} className="bg-white border-b hover:bg-gray-50">
                                     <td className="px-6 py-4 font-medium text-gray-900">{customer.name}</td>
-                                    <td className="px-6 py-4">{customer.phone || 'N/A'}</td>
+                                    <td className="px-6 py-4 font-mono text-gray-700">{displayPhone}</td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                                             customer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
@@ -187,7 +189,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                                         </div>
                                     </td>
                                 </tr>
-                            ))
+                            )})
                         ) : (
                             <tr>
                                 <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
@@ -213,8 +215,7 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                         <div className="bg-blue-50 p-4 rounded-md mb-4">
                             <p className="text-sm text-blue-800">
                                 <strong>Customer:</strong> {selectedCustomer?.name}<br/>
-                                {/* Strip +91 for display to avoid confusion with form input */}
-                                <strong>Login ID:</strong> {selectedCustomer?.phone ? selectedCustomer.phone.replace('+91', '') : 'No phone set'}
+                                <strong>Login ID:</strong> {selectedCustomer?.phone ? selectedCustomer.phone.replace(/\D/g, '').slice(-10) : 'No phone set'}
                             </p>
                         </div>
                         <div>

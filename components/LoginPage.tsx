@@ -62,20 +62,24 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
         setIsLoading(false);
     };
 
+    const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        // Remove all non-numeric characters
+        let val = e.target.value.replace(/\D/g, '');
+        
+        // If length is > 10, assume user pasted number with country code (e.g. 919876543210)
+        // and take the last 10 digits
+        if (val.length > 10) {
+            val = val.slice(-10);
+        }
+        
+        setPhone(val);
+    };
+
     const handleCustomerLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrors({});
         
-        // Intelligent Phone Sanitization
-        // 1. Remove all non-numeric characters (spaces, +, -, parens)
-        let cleanPhone = phone.replace(/\D/g, '');
-        
-        // 2. If the user pasted a number with country code (e.g., 919876543210 or 09876543210), 
-        // take the last 10 digits to get the raw mobile number.
-        if (cleanPhone.length > 10) {
-            cleanPhone = cleanPhone.slice(-10);
-        }
-
+        const cleanPhone = phone; // Already cleaned by onChange
         const cleanPassword = customerPassword.trim();
 
         if (cleanPhone.length !== 10) {
@@ -85,7 +89,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
         
         setIsLoading(true);
         const customerEmail = `${cleanPhone}@ssfarmorganic.local`;
-        console.log("Attempting customer login with:", customerEmail); // Debug log
+        console.log("Attempting customer login with:", customerEmail);
 
         const result = await onCustomerLogin(customerEmail, cleanPassword);
         if (!result.success) {
@@ -177,9 +181,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
                                         id="phone" 
                                         type="tel" 
                                         value={phone} 
-                                        onChange={e => setPhone(e.target.value)} 
+                                        onChange={handlePhoneChange} 
                                         required 
-                                        placeholder="Enter 10 digit mobile number"
+                                        placeholder="9876543210"
                                         className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} 
                                     />
                                 </div>

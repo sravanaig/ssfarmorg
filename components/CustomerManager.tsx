@@ -58,7 +58,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
             if (prevCustomerIdRef.current !== customerToEdit.id) {
                 setName(customerToEdit.name);
                 setAddress(customerToEdit.address);
-                setPhone(customerToEdit.phone ? customerToEdit.phone.replace('+91', '') : '');
+                setPhone(customerToEdit.phone ? customerToEdit.phone.replace(/\D/g, '').slice(-10) : '');
                 setEmail(customerToEdit.email || '');
                 setMilkPrice(customerToEdit.milkPrice);
                 setDefaultQuantity(customerToEdit.defaultQuantity);
@@ -86,6 +86,12 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         setErrors({});
     }, [customerToEdit]);
 
+    const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+        if (val.length > 10) val = val.slice(-10); // Keep last 10 (handles +91 paste)
+        setPhone(val);
+    };
+
     const validate = () => {
         const newErrors: { [key: string]: string } = {};
         if (!name.trim()) newErrors.name = "Name is required.";
@@ -111,7 +117,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
-            const formattedPhone = phone ? `+91${phone.replace(/\D/g, '').slice(-10)}` : '';
+            const formattedPhone = phone ? `+91${phone}` : '';
             onSubmit({ 
                 name, 
                 address, 
@@ -226,7 +232,13 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                         <label className="block text-sm font-medium text-gray-700">Mobile Number (for Login)</label>
                         <div className="mt-1 flex">
                             <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
-                            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
+                            <input 
+                                type="tel" 
+                                value={phone} 
+                                onChange={handlePhoneChange} 
+                                className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} 
+                                placeholder="9876543210"
+                            />
                         </div>
                         {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
                         <p className="mt-1 text-xs text-gray-500">Default password is the mobile number + * (e.g., 9876543210*)</p>
