@@ -213,7 +213,8 @@ const CustomerLoginManager: React.FC<CustomerLoginManagerProps> = ({ customers, 
                         <div className="bg-blue-50 p-4 rounded-md mb-4">
                             <p className="text-sm text-blue-800">
                                 <strong>Customer:</strong> {selectedCustomer?.name}<br/>
-                                <strong>Login ID:</strong> {selectedCustomer?.phone || 'No phone set'}
+                                {/* Strip +91 for display to avoid confusion with form input */}
+                                <strong>Login ID:</strong> {selectedCustomer?.phone ? selectedCustomer.phone.replace('+91', '') : 'No phone set'}
                             </p>
                         </div>
                         <div>

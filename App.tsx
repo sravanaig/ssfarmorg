@@ -19,20 +19,22 @@ import OrderManager from './components/OrderManager';
 import StaffDeliveryManager from './components/StaffDeliveryManager';
 import DeliveryApprovalManager from './components/DeliveryApprovalManager';
 import UserManager from './components/UserManager';
+import CustomerLoginManager from './components/CustomerLoginManager';
+import LocationManager from './components/LocationManager';
 import { getFriendlyErrorMessage } from './lib/errorHandler';
 import CalendarView from './components/CalendarView';
 import CustomerDashboard from './components/CustomerDashboard';
 
-type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar';
+type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins' | 'locations';
 export type Page = 'home' | 'login' | 'products';
 
 const defaultContent: WebsiteContent = {
   heroSlides: [
-    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "https://images.unsplash.com/photo-1620189507195-68309c04c4d5?q=80&w=2070&auto=format&fit=crop" },
-    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "https://images.unsplash.com/photo-1495107333503-a287c29515a3?q=80&w=2070&auto=format&fit=crop" },
-    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "https://images.unsplash.com/photo-1628268812585-1122394c6538?q=80&w=1974&auto=format&fit=crop" },
-    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "https://images.unsplash.com/photo-1550985223-e2b865a7a9df?q=80&w=2070&auto=format&fit=crop" },
-    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "https://images.unsplash.com/photo-1567523913054-486018a1a312?q=80&w=2070&auto=format&fit=crop" }
+    { title: "Pure & Fresh Milk, Every Morning", subtitle: "Straight from our farm to your doorstep, ensuring the highest quality and freshness.", image: "" },
+    { title: "100% Organic Goodness", subtitle: "Our milk comes from healthy, grass-fed cows, free from hormones and antibiotics.", image: "" },
+    { title: "More Than Just Milk", subtitle: "Discover our range of fresh dairy products, including homemade paneer and delicious ghee.", image: "" },
+    { title: "Easy & Reliable Deliveries", subtitle: "Manage your subscriptions and track your deliveries with our simple online dashboard.", image: "" },
+    { title: "Join The Freshness Movement", subtitle: "Experience the difference of fresh, organic milk delivered daily.", image: "" }
   ],
   ourStory: {
     title: "Our Journey to Pure Milk",
@@ -202,9 +204,10 @@ const App: React.FC = () => {
             let from = 0;
             
             while (true) {
+                // Ensure location columns are fetched even in legacy/fallback mode
                 const { data, error: fallbackError } = await supabase
                     .from('customers')
-                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId, email')
+                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId, email, "locationLat", "locationLng"')
                     .order('name', { ascending: true })
                     .range(from, from + CHUNK_SIZE - 1);
 
@@ -431,9 +434,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const allowedAdminViews: View[] = ['dashboard', 'customers', 'logins', 'customer_logins', 'locations', 'orders', 'delivery_approvals', 'deliveries', 'calendar', 'bills', 'payments', 'cms', 'database'];
+    
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
-    } else if (userRole === 'admin' && (view !== 'dashboard' && view !== 'customers' && view !== 'logins' && view !== 'orders' && view !== 'delivery_approvals' && view !== 'deliveries' && view !== 'calendar' && view !== 'bills' && view !== 'payments' && view !== 'cms' && view !== 'database')) {
+    } else if (userRole === 'admin' && !allowedAdminViews.includes(view)) {
         setView('dashboard');
     }
   }, [userRole, view]);
@@ -612,6 +617,7 @@ const App: React.FC = () => {
                                 <>
                                     {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
                                     {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} currentUserRole={userRole} />}
+                                    {view === 'customer_logins' && <CustomerLoginManager customers={customers} setCustomers={setCustomers} />}
                                     {view === 'delivery_approvals' && <DeliveryApprovalManager customers={customers} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} deliveries={deliveries} setDeliveries={setDeliveries} />}
                                     {view === 'calendar' && <CalendarView customers={customers} deliveries={deliveries} />}
                                     {view === 'payments' && <PaymentManager customers={customers} payments={payments} setPayments={setPayments} deliveries={deliveries} />}
@@ -622,6 +628,7 @@ const App: React.FC = () => {
                             
                             {/* Shared views */}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
+                            {view === 'locations' && <LocationManager customers={customers} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} userRole={userRole} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
 

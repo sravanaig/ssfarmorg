@@ -65,10 +65,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
     const handleCustomerLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrors({});
-        const cleanPhone = phone.trim();
+        
+        // Intelligent Phone Sanitization
+        // 1. Remove all non-numeric characters (spaces, +, -, parens)
+        let cleanPhone = phone.replace(/\D/g, '');
+        
+        // 2. If the user pasted a number with country code (e.g., 919876543210 or 09876543210), 
+        // take the last 10 digits to get the raw mobile number.
+        if (cleanPhone.length > 10) {
+            cleanPhone = cleanPhone.slice(-10);
+        }
+
         const cleanPassword = customerPassword.trim();
 
-        if (!/^\d{10}$/.test(cleanPhone)) {
+        if (cleanPhone.length !== 10) {
             setErrors({ phone: 'Please enter a valid 10-digit mobile number.' });
             return;
         }
@@ -163,7 +173,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onAdminLogin, onCustomerLogin, on
                                 <label htmlFor="phone" className="block text-sm font-medium text-gray-700">10-Digit Mobile Number</label>
                                 <div className="mt-1 flex">
                                     <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
-                                    <input id="phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} required className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} />
+                                    <input 
+                                        id="phone" 
+                                        type="tel" 
+                                        value={phone} 
+                                        onChange={e => setPhone(e.target.value)} 
+                                        required 
+                                        placeholder="Enter 10 digit mobile number"
+                                        className={`flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border ${errors.phone ? 'border-red-500' : 'border-gray-300'}`} 
+                                    />
                                 </div>
                                 {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
                             </div>
