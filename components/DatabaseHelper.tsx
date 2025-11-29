@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
-import { ClipboardIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
+import { ClipboardIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, DownloadIcon, SpinnerIcon } from './Icons';
+import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
 interface DatabaseHelperProps {
   projectRef: string | null;
@@ -50,6 +52,54 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; d
 };
 
 const DatabaseHelper: React.FC<DatabaseHelperProps> = ({ projectRef, errorMessage }) => {
+    const [isBackingUp, setIsBackingUp] = useState(false);
+
+    const handleBackup = async () => {
+        setIsBackingUp(true);
+        try {
+            const backupData: any = {
+                timestamp: new Date().toISOString(),
+                tables: {}
+            };
+
+            const tables = ['customers', 'deliveries', 'orders', 'payments', 'pending_deliveries', 'website_content', 'website_stats'];
+            
+            for (const table of tables) {
+                const { data, error } = await supabase.from(table).select('*');
+                if (error) {
+                    console.error(`Error backing up table ${table}:`, error);
+                    // Continue with other tables, but note the error
+                    backupData.tables[table] = { error: error.message };
+                } else {
+                    backupData.tables[table] = data;
+                }
+            }
+
+            // Backup Users (via RPC due to permissions)
+            const { data: users, error: usersError } = await supabase.rpc('get_all_users');
+            if (usersError) {
+                 console.warn("Could not backup users list via RPC", usersError);
+            } else {
+                backupData.tables['users_and_profiles'] = users;
+            }
+
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `ssfarmorganic_backup_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            alert('Backup downloaded successfully! Please store this file securely.');
+
+        } catch (error: any) {
+            alert('Backup failed: ' + getFriendlyErrorMessage(error));
+        } finally {
+            setIsBackingUp(false);
+        }
+    };
+
     const fullSetupSql = `-- 4-TIER ROLE SETUP SCRIPT (Super Admin, Admin, Staff, Customer)
 -- This script updates the schema to support hierarchy and specific permissions.
 
@@ -721,41 +771,83 @@ $$;
 GRANT EXECUTE ON FUNCTION increment_visitor_count() TO anon, authenticated, service_role;`;
 
     return (
-        <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Database Repair & Setup</h2>
-            
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <div className="flex">
-                    <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
+        <div className="space-y-6">
+            {errorMessage && (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Database Repair & Setup</h2>
+                    
+                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                        <div className="flex">
+                            <div className="flex-shrink-0">
+                                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                            <div className="ml-3">
+                                <p className="text-sm text-yellow-700">
+                                    We detected a database issue: <span className="font-bold">{errorMessage}</span>
+                                </p>
+                                <p className="text-sm text-yellow-700 mt-2">
+                                    Please run the SQL script below in your Supabase SQL Editor to fix table permissions and roles.
+                                </p>
+                            </div>
+                        </div>
                     </div>
-                    <div className="ml-3">
-                        <p className="text-sm text-yellow-700">
-                            We detected a database issue: <span className="font-bold">{errorMessage}</span>
-                        </p>
-                        <p className="text-sm text-yellow-700 mt-2">
-                            Please run the SQL script below in your Supabase SQL Editor to fix table permissions and roles.
-                        </p>
+
+                    <div className="mb-6">
+                        <h3 className="text-lg font-semibold mb-2">Instructions:</h3>
+                        <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
+                            <li>Copy the SQL script below.</li>
+                            <li>Go to your Supabase Dashboard ({projectRef ? <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Click here</a> : 'Project Settings -> SQL Editor'}).</li>
+                            <li>Click "New Query".</li>
+                            <li>Paste the script and click "Run".</li>
+                            <li>Once successful, return here and refresh the page.</li>
+                        </ol>
                     </div>
+
+                    <CollapsibleSection title="Full Database Setup Script (Run this)" defaultOpen={true}>
+                        {fullSetupSql}
+                    </CollapsibleSection>
                 </div>
-            </div>
+            )}
 
-            <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-2">Instructions:</h3>
-                <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-                    <li>Copy the SQL script below.</li>
-                    <li>Go to your Supabase Dashboard ({projectRef ? <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Click here</a> : 'Project Settings -> SQL Editor'}).</li>
-                    <li>Click "New Query".</li>
-                    <li>Paste the script and click "Run".</li>
-                    <li>Once successful, return here and refresh the page.</li>
-                </ol>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Data Backup</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                    Download a complete snapshot of your data (Customers, Deliveries, Orders, Payments, Users) as a JSON file.
+                    Store this file securely as a backup.
+                </p>
+                <button
+                    onClick={handleBackup}
+                    disabled={isBackingUp}
+                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                    {isBackingUp ? (
+                        <>
+                            <SpinnerIcon className="animate-spin h-5 w-5 mr-2" />
+                            Creating Backup...
+                        </>
+                    ) : (
+                        <>
+                            <DownloadIcon className="h-5 w-5 mr-2" />
+                            Download Full Backup
+                        </>
+                    )}
+                </button>
             </div>
-
-            <CollapsibleSection title="Full Database Setup Script (Run this)" defaultOpen={true}>
-                {fullSetupSql}
-            </CollapsibleSection>
+            
+            {/* Show setup script even if no error, but collapsed, for manual maintenance */}
+            {!errorMessage && (
+                 <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Advanced Database Maintenance</h2>
+                    <p className="text-sm text-gray-600 mb-4">
+                        Use this script to update database functions or fix permission issues manually.
+                    </p>
+                    <CollapsibleSection title="Database Setup Script" defaultOpen={false}>
+                        {fullSetupSql}
+                    </CollapsibleSection>
+                </div>
+            )}
         </div>
     );
 };
