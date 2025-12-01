@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useRef } from 'react';
 import type { Customer, Payment, Delivery } from '../types';
 import Modal from './Modal';
-import { PlusIcon, SearchIcon, TrashIcon, EditIcon } from './Icons';
+import { PlusIcon, SearchIcon, TrashIcon, EditIcon, UploadIcon, DownloadIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -20,6 +21,18 @@ interface PaymentFormProps {
     payments: Payment[];
     initialMonth: string;
 }
+
+const downloadCSV = (csvContent: string, filename: string) => {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
 
 const PaymentForm: React.FC<PaymentFormProps> = ({ onSubmit, onClose, customer, deliveries, payments, initialMonth }) => {
     const [amount, setAmount] = useState(0);
@@ -225,6 +238,7 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
   const [viewMode, setViewMode] = useState<'pending' | 'received'>('pending');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [paymentToEdit, setPaymentToEdit] = useState<Payment | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const customerMap = useMemo(() => new Map(customers.map(c => [c.id, c])), [customers]);
 
@@ -329,17 +343,145 @@ const PaymentManager: React.FC<PaymentManagerProps> = ({ customers, payments, se
     setPaymentToEdit(payment);
     setIsEditModalOpen(true);
   };
+
+  const handleExport = () => {
+    const headers = ['Customer Name', 'Amount', 'Date'];
+    const rows = receivedPaymentsForMonth.map(p => [
+        p.customerName,
+        p.amount,
+        p.date
+    ].join(','));
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    downloadCSV(csvContent, `payments_${billingMonth}.csv`);
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = 'Customer Name,Amount,Date (YYYY-MM-DD)';
+    const example = 'John Doe,500,2024-05-31';
+    downloadCSV(`${headers}\n${example}`, 'payment_import_template.csv');
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const text = e.target?.result;
+            if (typeof text !== 'string') {
+              alert('Error reading file content.');
+              return;
+            }
+            
+            const rows = text.split('\n').filter(row => row.trim() !== '');
+            if (rows.length < 2) {
+                throw new Error("CSV data is empty or contains only a header.");
+            }
+            
+            const header = rows[0].split(',').map(h => h.trim().toLowerCase());
+            const requiredHeaders = ['customer name', 'amount', 'date'];
+            
+            // Loose check for headers
+            if (!requiredHeaders.every(h => header.some(fileHeader => fileHeader.includes(h.split(' ')[0])))) {
+                 // Relaxed validation or detailed check could go here
+            }
+
+            const nameIndex = header.findIndex(h => h.includes('name'));
+            const amountIndex = header.findIndex(h => h.includes('amount'));
+            const dateIndex = header.findIndex(h => h.includes('date'));
+
+            if (nameIndex === -1 || amountIndex === -1 || dateIndex === -1) {
+                 throw new Error("Invalid CSV format. Please use the template.");
+            }
+
+            const customerMapByName = new Map<string, string>(customers.map(c => [c.name.toLowerCase(), c.id] as [string, string]));
+            const newPayments: Omit<Payment, 'id' | 'userId'>[] = [];
+            const notFoundCustomers: string[] = [];
+
+            for (let i = 1; i < rows.length; i++) {
+                const values = rows[i].split(',');
+                const name = values[nameIndex]?.trim();
+                const amountStr = values[amountIndex]?.trim();
+                const dateStr = values[dateIndex]?.trim();
+
+                if (!name || !amountStr || !dateStr) continue;
+
+                const customerId = customerMapByName.get(name.toLowerCase());
+                if (!customerId) {
+                    notFoundCustomers.push(name);
+                    continue;
+                }
+
+                const amount = parseFloat(amountStr);
+                if (isNaN(amount) || amount <= 0) continue;
+
+                // Validate date format slightly
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+
+                newPayments.push({
+                    customerId,
+                    amount,
+                    date: dateStr
+                });
+            }
+
+            if (newPayments.length === 0) {
+                alert("No valid payment data found to import.");
+                return;
+            }
+
+            // Batch insert
+            const { data, error } = await supabase.from('payments').insert(newPayments).select();
+            if (error) throw error;
+
+            if (data) {
+                const insertedPayments = data as Payment[];
+                setPayments(prev => [...prev, ...insertedPayments].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+                
+                let msg = `Successfully imported ${insertedPayments.length} payments.`;
+                if (notFoundCustomers.length > 0) {
+                    msg += `\n\nCould not find customers: ${notFoundCustomers.slice(0, 5).join(', ')}${notFoundCustomers.length > 5 ? '...' : ''}`;
+                }
+                alert(msg);
+            }
+
+        } catch (error: any) {
+            alert("An error occurred while importing: " + getFriendlyErrorMessage(error));
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
+    reader.readAsText(file);
+  };
   
   return (
     <div>
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
             <h2 className="text-3xl font-bold text-gray-800">Payments</h2>
-             <div className="flex items-center gap-4">
+             <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative">
                     <input type="text" placeholder="Search customers..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 pl-10 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 </div>
                 <input type="month" value={billingMonth} onChange={e => setBillingMonth(e.target.value)} className="w-full sm:w-auto border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                
+                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} className="hidden" />
+                <button onClick={handleImportClick} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
+                    <UploadIcon className="h-4 w-4 mr-2"/> Import
+                </button>
+                <button onClick={handleDownloadTemplate} className="flex items-center px-3 py-2 text-sm text-gray-600 border bg-white rounded-lg hover:bg-gray-50 transition-colors" title="Download Template">
+                    Template
+                </button>
+                <button onClick={handleExport} className="flex items-center px-3 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                    <DownloadIcon className="h-4 w-4 mr-2"/> Export
+                </button>
             </div>
         </div>
         

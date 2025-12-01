@@ -94,11 +94,56 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onDo
     );
 }
 
+interface BulkExportModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onExport: (month: string) => void;
+}
+
+const BulkExportModal: React.FC<BulkExportModalProps> = ({ isOpen, onClose, onExport }) => {
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().substring(0, 7));
+
+    const handleExportClick = () => {
+        if (!exportMonth) {
+            alert("Please select a month.");
+            return;
+        }
+        onExport(exportMonth);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Bulk Export Deliveries">
+            <div className="space-y-6">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Select Month to Export</label>
+                    <p className="text-sm text-gray-600 mb-2">Download a monthly report of all deliveries for active customers.</p>
+                    <input
+                        type="month"
+                        value={exportMonth}
+                        onChange={e => setExportMonth(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                </div>
+                <div className="flex justify-end pt-4 border-t space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button
+                        onClick={handleExportClick}
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                    >
+                        <DownloadIcon className="h-4 w-4 mr-2"/> Export CSV
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries, setDeliveries }) => {
   // Common state
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
   // View mode state
   const [mode, setMode] = useState<'daily' | 'monthly'>('daily');
@@ -353,6 +398,51 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
     downloadCSV(csvContent, `delivery_template_${month}.csv`);
   };
 
+  const handleBulkExport = (month: string) => {
+    const [year, monthNum] = month.split('-').map(Number);
+    const daysInMonth = new Date(year, monthNum, 0).getDate();
+    
+    // Construct Header
+    const headerRow = ['Customer Name', 'Mobile', 'Address'];
+    for (let i = 1; i <= daysInMonth; i++) {
+        headerRow.push(String(i));
+    }
+    headerRow.push('Total (L)');
+
+    // Create a quick lookup map for deliveries in this month
+    const monthPrefix = `${year}-${String(monthNum).padStart(2, '0')}`;
+    const deliveriesMap = new Map<string, number>();
+    deliveries.forEach(d => {
+        if (d.date.startsWith(monthPrefix)) {
+            deliveriesMap.set(`${d.customerId}-${d.date}`, d.quantity);
+        }
+    });
+
+    // Construct Data Rows
+    const rows = activeCustomers.map(customer => {
+        const row = [
+            `"${customer.name}"`, 
+            `"${customer.phone || ''}"`,
+            `"${customer.address.replace(/"/g, '""')}"` // Escape quotes in address
+        ];
+        
+        let customerTotal = 0;
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${monthPrefix}-${String(i).padStart(2, '0')}`;
+            const key = `${customer.id}-${dateStr}`;
+            const qty = deliveriesMap.get(key) || 0;
+            customerTotal += qty;
+            row.push(String(qty));
+        }
+        row.push(String(customerTotal));
+        return row.join(',');
+    });
+
+    const csvContent = [headerRow.join(','), ...rows].join('\n');
+    downloadCSV(csvContent, `monthly_deliveries_${month}.csv`);
+    setIsExportModalOpen(false);
+  };
+
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>, month: string) => {
     const file = event.target.files?.[0];
     // Capture input element here to clear it in finally block
@@ -467,6 +557,9 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
             </div>
              <button onClick={() => setIsImportModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg shadow-sm hover:bg-gray-700 transition-colors">
                 <UploadIcon className="h-4 w-4 mr-2"/> Bulk Import
+            </button>
+             <button onClick={() => setIsExportModalOpen(true)} className="flex items-center px-3 py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+                <DownloadIcon className="h-4 w-4 mr-2"/> Bulk Export
             </button>
         </div>
       </div>
@@ -678,6 +771,11 @@ const DeliveryManager: React.FC<DeliveryManagerProps> = ({ customers, deliveries
         onClose={() => setIsImportModalOpen(false)} 
         onDownloadTemplate={handleDownloadTemplate}
         onFileImport={handleFileImport}
+      />
+      <BulkExportModal 
+        isOpen={isExportModalOpen} 
+        onClose={() => setIsExportModalOpen(false)} 
+        onExport={handleBulkExport}
       />
     </div>
   );
