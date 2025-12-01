@@ -850,45 +850,53 @@ BEGIN
   ON CONFLICT (id) DO UPDATE
   SET role = 'super_admin', status = 'approved';
 
-END $$;
-`;
+END $$;`;
 
     return (
         <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-yellow-500">
-                <h2 className="text-2xl font-bold text-gray-800 mb-2">Database Setup Required</h2>
-                <p className="text-gray-700 mb-4">
-                    The application is unable to access some required tables or functions. This usually happens when the database schema hasn't been fully initialized or permissions are missing.
-                </p>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Database Troubleshooting & Setup</h3>
+                
                 {errorMessage && (
-                    <div className="bg-red-50 text-red-800 p-4 rounded-md mb-6 border border-red-200">
-                        <p className="font-semibold">Error Details:</p>
+                    <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
+                        <p className="font-bold">Detected Error:</p>
                         <p className="font-mono text-sm mt-1">{errorMessage}</p>
                     </div>
                 )}
-                
+
                 <div className="mb-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Step 1: Backup Data</h3>
-                    <p className="text-sm text-gray-600 mb-3">Before running any scripts, it is highly recommended to backup your existing data.</p>
+                    <h4 className="font-semibold text-gray-700 mb-2">1. Backup Data</h4>
+                    <p className="text-sm text-gray-600 mb-3">Before making any changes, it is highly recommended to download a backup of your current data.</p>
                     <button 
                         onClick={handleBackup} 
                         disabled={isBackingUp}
-                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
                     >
                         {isBackingUp ? <SpinnerIcon className="animate-spin h-5 w-5 mr-2" /> : <DownloadIcon className="h-5 w-5 mr-2" />}
-                        {isBackingUp ? 'Backing up...' : 'Download Full Backup'}
+                        {isBackingUp ? 'Creating Backup...' : 'Download Full Backup'}
                     </button>
                 </div>
 
-                <div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Step 2: Run Setup Script</h3>
+                <div className="mb-6">
+                    <h4 className="font-semibold text-gray-700 mb-2">2. Database Setup Script</h4>
                     <p className="text-sm text-gray-600 mb-3">
-                        Copy the SQL script below and run it in your Supabase project's <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">SQL Editor</a>.
-                        This will create all necessary tables, functions, and policies.
+                        Run this SQL script in the Supabase SQL Editor to fix schema issues, set up permissions, and update functions.
+                        This is safe to run multiple times (it uses "IF NOT EXISTS" and "OR REPLACE").
                     </p>
-                    <CollapsibleSection title="View Setup Script (Copy & Run in Supabase SQL Editor)" defaultOpen={true}>
+                    <CollapsibleSection title="View Full Setup SQL" defaultOpen={true}>
                         {fullSetupSql}
                     </CollapsibleSection>
+                </div>
+                
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+                    <p className="font-semibold">Instructions:</p>
+                    <ol className="list-decimal ml-5 mt-1 space-y-1">
+                        <li>Go to your <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Supabase SQL Editor</a>.</li>
+                        <li>Click "New Query".</li>
+                        <li>Copy the SQL script above.</li>
+                        <li>Paste it into the editor and click "Run".</li>
+                        <li>Once successful, refresh this page.</li>
+                    </ol>
                 </div>
             </div>
         </div>

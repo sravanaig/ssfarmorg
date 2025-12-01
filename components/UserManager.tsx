@@ -216,7 +216,12 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
             setUserToReset(null);
             setNewPassword('');
         } catch (error: any) {
-            alert(`Failed to reset password: ${getFriendlyErrorMessage(error)}`);
+            const msg = getFriendlyErrorMessage(error);
+            if (msg.includes('Could not find the function')) {
+                alert("Database Issue: The password reset function is missing from your database. Please go to 'Database Helper' in the sidebar and run the SQL script.");
+            } else {
+                alert(`Failed to reset password: ${msg}`);
+            }
         } finally {
             setIsResetting(false);
         }
