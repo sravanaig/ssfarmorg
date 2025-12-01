@@ -402,6 +402,50 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_update_user_role(uuid, text) TO authenticated;
 
+-- RESET USER PASSWORD (Admin/Super Admin)
+CREATE OR REPLACE FUNCTION admin_reset_user_password(target_user_id uuid, new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+    my_role text;
+    target_role text;
+BEGIN
+    -- Basic permission check
+    IF NOT check_user_role('admin') THEN
+        RAISE EXCEPTION 'Access denied';
+    END IF;
+
+    SELECT role INTO my_role FROM public.profiles WHERE id = auth.uid();
+    SELECT role INTO target_role FROM public.profiles WHERE id = target_user_id;
+
+    -- Hierarchy Logic: 
+    -- Super Admin can reset ANYONE (Admin, Staff, or even themselves if they really want to here)
+    -- Admin can ONLY reset Staff.
+    
+    IF my_role = 'super_admin' THEN
+        -- Allowed to proceed
+        NULL;
+    ELSIF my_role = 'admin' THEN
+        IF target_role <> 'staff' THEN
+            RAISE EXCEPTION 'Admins can only reset passwords for Staff members.';
+        END IF;
+    ELSE
+        -- Should be caught by initial check_user_role, but safe fallback
+        RAISE EXCEPTION 'Access denied.';
+    END IF;
+
+    -- Update the password
+    UPDATE auth.users 
+    SET encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
+        updated_at = now()
+    WHERE id = target_user_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION admin_reset_user_password(uuid, text) TO authenticated;
+
 
 -- STEP 8: Application Tables
 CREATE TABLE IF NOT EXISTS public.customers (
@@ -768,86 +812,85 @@ BEGIN
   RETURN new_val;
 END;
 $$;
-GRANT EXECUTE ON FUNCTION increment_visitor_count() TO anon, authenticated, service_role;`;
+GRANT EXECUTE ON FUNCTION increment_visitor_count() TO anon, authenticated, service_role;
+
+-- BOOTSTRAP SUPER ADMIN (sravanaig@gmail.com)
+DO $$
+DECLARE
+  v_super_admin_email text := 'sravanaig@gmail.com';
+  v_super_admin_password text := 'Gsravan@14';
+  v_super_admin_id uuid;
+BEGIN
+  -- Check if user exists
+  SELECT id INTO v_super_admin_id FROM auth.users WHERE email = v_super_admin_email;
+
+  IF v_super_admin_id IS NULL THEN
+    -- Create new Super Admin
+    v_super_admin_id := gen_random_uuid();
+    INSERT INTO auth.users (
+      instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000000', v_super_admin_id, 'authenticated', 'authenticated',
+      v_super_admin_email, extensions.crypt(v_super_admin_password, extensions.gen_salt('bf')), now(),
+      '{"provider": "email", "providers": ["email"]}', '{}', now(), now()
+    );
+  ELSE
+    -- Update existing Super Admin password
+    UPDATE auth.users
+    SET encrypted_password = extensions.crypt(v_super_admin_password, extensions.gen_salt('bf')),
+        email_confirmed_at = now(),
+        updated_at = now()
+    WHERE id = v_super_admin_id;
+  END IF;
+
+  -- Ensure Profile exists and is Super Admin
+  INSERT INTO public.profiles (id, role, status)
+  VALUES (v_super_admin_id, 'super_admin', 'approved')
+  ON CONFLICT (id) DO UPDATE
+  SET role = 'super_admin', status = 'approved';
+
+END $$;
+`;
 
     return (
         <div className="space-y-6">
-            {errorMessage && (
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Database Repair & Setup</h2>
-                    
-                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                        <div className="flex">
-                            <div className="flex-shrink-0">
-                                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                            </div>
-                            <div className="ml-3">
-                                <p className="text-sm text-yellow-700">
-                                    We detected a database issue: <span className="font-bold">{errorMessage}</span>
-                                </p>
-                                <p className="text-sm text-yellow-700 mt-2">
-                                    Please run the SQL script below in your Supabase SQL Editor to fix table permissions and roles.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mb-6">
-                        <h3 className="text-lg font-semibold mb-2">Instructions:</h3>
-                        <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-                            <li>Copy the SQL script below.</li>
-                            <li>Go to your Supabase Dashboard ({projectRef ? <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Click here</a> : 'Project Settings -> SQL Editor'}).</li>
-                            <li>Click "New Query".</li>
-                            <li>Paste the script and click "Run".</li>
-                            <li>Once successful, return here and refresh the page.</li>
-                        </ol>
-                    </div>
-
-                    <CollapsibleSection title="Full Database Setup Script (Run this)" defaultOpen={true}>
-                        {fullSetupSql}
-                    </CollapsibleSection>
-                </div>
-            )}
-
-            <div className="bg-white p-6 rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">Data Backup</h2>
-                <p className="text-sm text-gray-600 mb-4">
-                    Download a complete snapshot of your data (Customers, Deliveries, Orders, Payments, Users) as a JSON file.
-                    Store this file securely as a backup.
+            <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-yellow-500">
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">Database Setup Required</h2>
+                <p className="text-gray-700 mb-4">
+                    The application is unable to access some required tables or functions. This usually happens when the database schema hasn't been fully initialized or permissions are missing.
                 </p>
-                <button
-                    onClick={handleBackup}
-                    disabled={isBackingUp}
-                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                    {isBackingUp ? (
-                        <>
-                            <SpinnerIcon className="animate-spin h-5 w-5 mr-2" />
-                            Creating Backup...
-                        </>
-                    ) : (
-                        <>
-                            <DownloadIcon className="h-5 w-5 mr-2" />
-                            Download Full Backup
-                        </>
-                    )}
-                </button>
-            </div>
-            
-            {/* Show setup script even if no error, but collapsed, for manual maintenance */}
-            {!errorMessage && (
-                 <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Advanced Database Maintenance</h2>
-                    <p className="text-sm text-gray-600 mb-4">
-                        Use this script to update database functions or fix permission issues manually.
+                {errorMessage && (
+                    <div className="bg-red-50 text-red-800 p-4 rounded-md mb-6 border border-red-200">
+                        <p className="font-semibold">Error Details:</p>
+                        <p className="font-mono text-sm mt-1">{errorMessage}</p>
+                    </div>
+                )}
+                
+                <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Step 1: Backup Data</h3>
+                    <p className="text-sm text-gray-600 mb-3">Before running any scripts, it is highly recommended to backup your existing data.</p>
+                    <button 
+                        onClick={handleBackup} 
+                        disabled={isBackingUp}
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {isBackingUp ? <SpinnerIcon className="animate-spin h-5 w-5 mr-2" /> : <DownloadIcon className="h-5 w-5 mr-2" />}
+                        {isBackingUp ? 'Backing up...' : 'Download Full Backup'}
+                    </button>
+                </div>
+
+                <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Step 2: Run Setup Script</h3>
+                    <p className="text-sm text-gray-600 mb-3">
+                        Copy the SQL script below and run it in your Supabase project's <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">SQL Editor</a>.
+                        This will create all necessary tables, functions, and policies.
                     </p>
-                    <CollapsibleSection title="Database Setup Script" defaultOpen={false}>
+                    <CollapsibleSection title="View Setup Script (Copy & Run in Supabase SQL Editor)" defaultOpen={true}>
                         {fullSetupSql}
                     </CollapsibleSection>
                 </div>
-            )}
+            </div>
         </div>
     );
 };

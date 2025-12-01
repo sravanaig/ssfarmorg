@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import type { ManagedUser, Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
-import { TrashIcon, PlusIcon, SpinnerIcon } from './Icons';
+import { TrashIcon, PlusIcon, SpinnerIcon, KeyIcon } from './Icons';
 import Modal from './Modal';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 
@@ -74,6 +74,12 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
     const [isUpdating, setIsUpdating] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
+    
+    // Reset Password State
+    const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+    const [userToReset, setUserToReset] = useState<ManagedUser | null>(null);
+    const [newPassword, setNewPassword] = useState('');
+    const [isResetting, setIsResetting] = useState(false);
 
     const canManageAdmins = currentUserRole === 'super_admin';
 
@@ -182,6 +188,40 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
         }
     };
 
+    const openResetPasswordModal = (user: ManagedUser) => {
+        if (!canManageAdmins && user.role === 'admin') {
+            alert("Only Super Admins can reset Admin passwords.");
+            return;
+        }
+        setUserToReset(user);
+        setNewPassword('');
+        setIsResetModalOpen(true);
+    };
+
+    const handlePasswordReset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!userToReset || newPassword.length < 6) return;
+
+        setIsResetting(true);
+        try {
+            const { error } = await supabase.rpc('admin_reset_user_password', {
+                target_user_id: userToReset.id,
+                new_password: newPassword
+            });
+
+            if (error) throw error;
+
+            alert(`Password for ${userToReset.email} has been updated.`);
+            setIsResetModalOpen(false);
+            setUserToReset(null);
+            setNewPassword('');
+        } catch (error: any) {
+            alert(`Failed to reset password: ${getFriendlyErrorMessage(error)}`);
+        } finally {
+            setIsResetting(false);
+        }
+    };
+
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
@@ -199,6 +239,30 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
                     isCreating={isCreating}
                     canCreateAdmins={canManageAdmins}
                 />
+            </Modal>
+
+            <Modal isOpen={isResetModalOpen} onClose={() => setIsResetModalOpen(false)} title={`Reset Password for ${userToReset?.email}`}>
+                <form onSubmit={handlePasswordReset} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">New Password</label>
+                        <input 
+                            type="text" 
+                            value={newPassword} 
+                            onChange={e => setNewPassword(e.target.value)} 
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            placeholder="Enter new password (min 6 chars)"
+                            minLength={6}
+                            required
+                        />
+                    </div>
+                    <div className="flex justify-end pt-4 space-x-2">
+                        <button type="button" onClick={() => setIsResetModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" disabled={isResetting || newPassword.length < 6} className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50 flex items-center">
+                            {isResetting && <SpinnerIcon className="animate-spin h-4 w-4 mr-2" />}
+                            {isResetting ? 'Updating...' : 'Update Password'}
+                        </button>
+                    </div>
+                </form>
             </Modal>
 
             <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -260,16 +324,28 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
                                                     <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} title="Reject User" className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
                                                 </div>
                                             ) : (
-                                                (user.role !== 'super_admin') && (
-                                                    <button 
-                                                        onClick={() => handleDeleteUser(user.id, user.email, user.role)}
-                                                        className={`text-red-600 hover:text-red-800 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                        title="Delete User"
-                                                        disabled={!canManageAdmins && user.role === 'admin'}
-                                                    >
-                                                        <TrashIcon className="w-5 h-5"/>
-                                                    </button>
-                                                )
+                                                <div className="flex gap-2 justify-end">
+                                                    {user.role !== 'super_admin' && (user.status === 'approved') && (
+                                                        <button
+                                                            onClick={() => openResetPasswordModal(user)}
+                                                            className={`text-yellow-600 hover:text-yellow-800 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            title="Reset Password"
+                                                            disabled={!canManageAdmins && user.role === 'admin'}
+                                                        >
+                                                            <KeyIcon className="w-5 h-5"/>
+                                                        </button>
+                                                    )}
+                                                    {(user.role !== 'super_admin') && (
+                                                        <button 
+                                                            onClick={() => handleDeleteUser(user.id, user.email, user.role)}
+                                                            className={`text-red-600 hover:text-red-800 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            title="Delete User"
+                                                            disabled={!canManageAdmins && user.role === 'admin'}
+                                                        >
+                                                            <TrashIcon className="w-5 h-5"/>
+                                                        </button>
+                                                    )}
+                                                </div>
                                             )}
                                             </td>
                                         </tr>
@@ -326,15 +402,26 @@ const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, currentUserR
                                                 <button onClick={() => handleUpdateStatus(user.id, user.email, 'rejected')} className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700">Reject</button>
                                             </>
                                         ) : (
-                                            (user.role !== 'super_admin') && (
-                                                <button 
-                                                    onClick={() => handleDeleteUser(user.id, user.email, user.role)}
-                                                    disabled={!canManageAdmins && user.role === 'admin'}
-                                                    className={`flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                >
-                                                    <TrashIcon className="w-4 h-4 mr-1"/> Delete
-                                                </button>
-                                            )
+                                            <div className="flex gap-2">
+                                                {user.role !== 'super_admin' && (
+                                                    <button
+                                                        onClick={() => openResetPasswordModal(user)}
+                                                        disabled={!canManageAdmins && user.role === 'admin'}
+                                                        className={`flex items-center px-3 py-1.5 text-sm bg-yellow-500 text-white rounded-md hover:bg-yellow-600 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    >
+                                                        <KeyIcon className="w-4 h-4 mr-1"/> Reset Pwd
+                                                    </button>
+                                                )}
+                                                {(user.role !== 'super_admin') && (
+                                                    <button 
+                                                        onClick={() => handleDeleteUser(user.id, user.email, user.role)}
+                                                        disabled={!canManageAdmins && user.role === 'admin'}
+                                                        className={`flex items-center px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 ${!canManageAdmins && user.role === 'admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    >
+                                                        <TrashIcon className="w-4 h-4 mr-1"/> Delete
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </div>
