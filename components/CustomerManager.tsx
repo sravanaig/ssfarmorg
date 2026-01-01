@@ -577,37 +577,32 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             throw new Error(`Invalid CSV header. Required: ${requiredHeaders.join(', ')}`);
         }
         
-        // Create a lookup map of existing customers by phone to preserve locations
-        const existingCustomerMap = new Map<string, Customer>();
-        customers.forEach(c => {
-            if (c.phone) existingCustomerMap.set(c.phone, c);
-        });
+        // Create a lookup map of existing phones to ignore duplicates
+        const existingPhones = new Set(customers.map(c => c.phone));
+        let skippedCount = 0;
 
         const newCustomersData = rows.slice(1).map(row => {
             const values = row.split(',');
             const getColumnValue = (columnName: string) => values[header.indexOf(columnName)]?.trim() || '';
+
+            const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
+            const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
+
+            // IGNORE DUPLICATES: Check if phone already exists
+            if (existingPhones.has(phoneFormatted)) {
+                skippedCount++;
+                return null;
+            }
 
             let status = getColumnValue('status').toLowerCase();
             if (status !== 'active' && status !== 'inactive') {
                 status = 'active';
             }
 
-            const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
-            const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
-
-            // Check for existing location if CSV is blank
-            const existing = existingCustomerMap.get(phoneFormatted);
             const csvLat = getColumnValue('locationLat');
             const csvLng = getColumnValue('locationLng');
-
             let lat: number | undefined = csvLat ? parseFloat(csvLat) : undefined;
             let lng: number | undefined = csvLng ? parseFloat(csvLng) : undefined;
-
-            // PRESERVATION LOGIC: If CSV is empty, keep existing DB value
-            if (existing) {
-                if (isNaN(lat as number) || !csvLat) lat = existing.locationLat;
-                if (isNaN(lng as number) || !csvLng) lng = existing.locationLng;
-            }
 
             return {
                 name: getColumnValue('name'),
@@ -622,38 +617,38 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 locationLat: isNaN(lat as number) ? undefined : lat,
                 locationLng: isNaN(lng as number) ? undefined : lng,
             };
-        }).filter(customer => customer.name && customer.phone);
+        }).filter(customer => customer !== null && customer.name && customer.phone);
 
         if (newCustomersData.length === 0) {
-            alert("No valid customer data found to import. Ensure phone numbers are provided.");
+            if (skippedCount > 0) {
+                alert(`No new customers to import. All ${skippedCount} mobile numbers in the file already exist.`);
+            } else {
+                alert("No valid customer data found to import.");
+            }
             return;
         }
 
-        // Use upsert on phone to ensure we don't duplicate or delete locations on existing rows
         const { data, error } = await supabase
             .from('customers')
-            .upsert(newCustomersData, { onConflict: 'phone' })
+            .insert(newCustomersData)
             .select();
 
         if (error) throw error;
 
         if (data) {
             const importedCustomers = data as Customer[];
-            // Merge back into state
-            setCustomers(prev => {
-                const merged = [...prev];
-                importedCustomers.forEach(imported => {
-                    const idx = merged.findIndex(p => p.phone === imported.phone);
-                    if (idx !== -1) merged[idx] = imported;
-                    else merged.push(imported);
-                });
-                return merged.sort((a,b) => a.name.localeCompare(b.name));
-            });
+            // Add new ones to state
+            setCustomers(prev => [...prev, ...importedCustomers].sort((a,b) => a.name.localeCompare(b.name)));
             
             for (const customer of importedCustomers) {
                 await setDefaultPasswordIfNeeded(customer.id, customer.phone);
             }
-            alert(`${importedCustomers.length} customers imported/updated successfully. Locations preserved.`);
+            
+            let msg = `Successfully imported ${importedCustomers.length} new customers.`;
+            if (skippedCount > 0) {
+                msg += ` Skipped ${skippedCount} duplicates.`;
+            }
+            alert(msg);
         }
   }
 
