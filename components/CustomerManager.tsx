@@ -47,14 +47,10 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     const [isResetting, setIsResetting] = useState(false);
     const [resetError, setResetError] = useState('');
     
-    // Ref to track which customer we are editing to prevent overwriting form data 
-    // when the parent component updates the customer object (e.g., after creating a login)
     const prevCustomerIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (customerToEdit) {
-            // Only reset form fields if we switched to a different customer.
-            // This preserves unsaved edits if the parent updates the same customer object (e.g. adding userId).
             if (prevCustomerIdRef.current !== customerToEdit.id) {
                 setName(customerToEdit.name);
                 setAddress(customerToEdit.address);
@@ -87,8 +83,8 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
     }, [customerToEdit]);
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
-        if (val.length > 10) val = val.slice(-10); // Keep last 10 (handles +91 paste)
+        let val = e.target.value.replace(/\D/g, '');
+        if (val.length > 10) val = val.slice(-10);
         setPhone(val);
     };
 
@@ -113,7 +109,6 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
         return Object.keys(newErrors).length === 0;
     };
 
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (validate()) {
@@ -136,7 +131,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
 
     const handleResetSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        e.stopPropagation(); // STOP event from bubbling up to the parent form
+        e.stopPropagation();
         
         setResetError('');
         const cleanPassword = newPassword.trim();
@@ -187,7 +182,6 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                     {errors.address && <p className="mt-1 text-xs text-red-600">{errors.address}</p>}
                 </div>
                 
-                {/* Location Section */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700">GPS Location</label>
                     <div className="mt-1 flex space-x-2">
@@ -336,9 +330,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                             <button 
                                 type="button" 
                                 onClick={() => {
-                                    // Pre-fill password logic if phone available
                                     if (!customerToEdit.userId && customerToEdit.phone && customerToEdit.phone.length >= 10) {
-                                        // Extract last 10 digits
                                         const cleanPhone = customerToEdit.phone.replace(/\D/g, '').slice(-10);
                                         setNewPassword(cleanPhone + "*");
                                     } else {
@@ -351,11 +343,6 @@ const CustomerForm: React.FC<CustomerFormProps> = ({ onSubmit, onClose, customer
                                 {customerToEdit.userId ? 'Reset Password' : 'Create Login Credentials'}
                             </button>
                         </div>
-                        {!customerToEdit.userId && (
-                             <p className="text-xs text-gray-500 mt-2">
-                                Creating a login will allow the customer to access their dashboard using their phone number.
-                            </p>
-                        )}
                     </div>
                 )}
 
@@ -409,10 +396,9 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Permission Logic
   const canDelete = userRole === 'admin' || userRole === 'super_admin';
   const canImportExport = userRole === 'admin' || userRole === 'super_admin';
-  const canEdit = true; // Staff can edit, assuming they need to update phone numbers etc.
+  const canEdit = true;
 
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -429,51 +415,34 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
   
   const setDefaultPasswordIfNeeded = async (customerId: string, phone: string, newUserId?: string | null) => {
     if (!phone || !/^\+91\d{10}$/.test(phone)) return;
-
     const tenDigitPhone = phone.slice(3);
     const password = `${tenDigitPhone}*`;
-
     try {
         const { data: resultingUserId, error } = await supabase.rpc('admin_set_customer_password', {
             p_customer_id: customerId,
             p_password: password
         });
-
-        if (error) {
-            throw error;
-        } else if (resultingUserId && (!newUserId || newUserId !== resultingUserId)) {
+        if (error) throw error;
+        else if (resultingUserId && (!newUserId || newUserId !== resultingUserId)) {
              setCustomers(prev => prev.map(c => 
                 c.id === customerId ? { ...c, userId: resultingUserId } : c
             ));
         }
     } catch (rpcError: any) {
-        const message = getFriendlyErrorMessage(rpcError);
-        console.error(`RPC call failed while setting password for customer ${customerId}:`, message);
-        if (message.includes('function') && message.includes('does not exist')) {
-             alert("Note: Customer created, but login creation failed. Please ask an admin to run the database setup script.");
-        }
+        console.error(`RPC call failed while setting password:`, getFriendlyErrorMessage(rpcError));
     }
   };
 
   const handleAddCustomer = async (customerData: Omit<Customer, 'id' | 'userId'>) => {
     setIsSubmitting(true);
     let dataToInsert: Partial<Omit<Customer, 'id' | 'userId'>> = customerData;
-
     if (isLegacySchema) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { previousBalance, balanceAsOfDate, ...legacyData } = customerData;
         dataToInsert = legacyData;
     }
-
     try {
-        const { data, error } = await supabase
-            .from('customers')
-            .insert(dataToInsert)
-            .select()
-            .single();
-
+        const { data, error } = await supabase.from('customers').insert(dataToInsert).select().single();
         if (error) throw error;
-        
         if (data) {
             const newCustomer: Customer = {
                 ...data,
@@ -482,14 +451,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             };
             setCustomers(prev => [...prev, newCustomer].sort((a,b) => a.name.localeCompare(b.name)));
             setIsModalOpen(false);
-            
-            // Automatically set default password and ALERT the admin
             await setDefaultPasswordIfNeeded(newCustomer.id, newCustomer.phone);
-            
-            if (newCustomer.phone && newCustomer.phone.length > 10) {
-                const displayPhone = newCustomer.phone.slice(3);
-                alert(`Customer added successfully!\n\nA login has been created.\nUsername: ${displayPhone}\nDefault Password: ${displayPhone}*`);
-            }
         }
     } catch (error: any) {
         alert(getFriendlyErrorMessage(error));
@@ -502,23 +464,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     if (!customerToEdit) return;
     setIsSubmitting(true);
     let dataToUpdate: Partial<Omit<Customer, 'id' | 'userId'>> = customerData;
-    
     if (isLegacySchema) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { previousBalance, balanceAsOfDate, ...legacyData } = customerData;
         dataToUpdate = legacyData;
     }
-
     try {
-      const { data, error } = await supabase
-        .from('customers')
-        .update(dataToUpdate)
-        .eq('id', customerToEdit.id)
-        .select()
-        .single();
-      
+      const { data, error } = await supabase.from('customers').update(dataToUpdate).eq('id', customerToEdit.id).select().single();
       if (error) throw error;
-
       if(data) {
         const updatedCustomer: Customer = {
             ...data,
@@ -526,16 +478,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             balanceAsOfDate: (data as any).balanceAsOfDate ?? null,
         };
         setCustomers(prev => prev.map(c => c.id === updatedCustomer.id ? updatedCustomer : c));
-        
-        // If phone number changed, update password
         if (customerData.phone && customerData.phone !== customerToEdit.phone) {
             await setDefaultPasswordIfNeeded(updatedCustomer.id, updatedCustomer.phone, updatedCustomer.userId);
         }
       }
       setCustomerToEdit(null);
       setIsModalOpen(false);
-    } catch (error: any)
-    {
+    } catch (error: any) {
         alert(getFriendlyErrorMessage(error));
     } finally {
         setIsSubmitting(false);
@@ -548,25 +497,15 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             p_customer_id: customerId,
             p_password: newPassword
         });
-
         if (error) throw error;
-        
-        // Update local state to reflect new login status immediately
-        setCustomers(prev => prev.map(c => 
-            c.id === customerId ? { ...c, userId: userId } : c
-        ));
-        
-        // Also update the currently editing customer object so the modal UI updates
+        setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, userId: userId } : c));
         if (customerToEdit && customerToEdit.id === customerId) {
              setCustomerToEdit(prev => prev ? { ...prev, userId: userId } : prev);
         }
-        
-        alert(`Login credentials successfully ${customerToEdit?.userId ? 'reset' : 'created'}.\n\nPassword: ${newPassword}\n\nPlease share this with the customer.`);
+        alert(`Login credentials successfully updated.`);
         return { success: true };
-
     } catch (error: any) {
-        const msg = getFriendlyErrorMessage(error);
-        alert(`Failed to process request: ${msg}`);
+        alert(`Failed: ${getFriendlyErrorMessage(error)}`);
         return { success: false };
     }
   };
@@ -574,31 +513,17 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
 
   const handleDeleteCustomer = async (id: string) => {
     if (!canDelete) return;
-    if (window.confirm('Are you sure you want to delete this customer? This will also delete their login and all associated data. This action cannot be undone.')) {
+    if (window.confirm('Are you sure you want to delete this customer?')) {
         try {
             const customerToDelete = customers.find(c => c.id === id);
-
-            // First, delete the associated auth user if one exists.
             if (customerToDelete?.userId) {
-                const { error: userDeleteError } = await supabase.rpc('delete_user_by_id', {
-                    target_user_id: customerToDelete.userId
-                });
-                
-                if (userDeleteError) {
-                     const msg = getFriendlyErrorMessage(userDeleteError);
-                     if (!msg.includes('does not exist')) {
-                        throw userDeleteError;
-                     }
-                }
+                await supabase.rpc('delete_user_by_id', { target_user_id: customerToDelete.userId });
             }
-
-            // Proceed with deleting customer and related data
             await supabase.from('deliveries').delete().eq('customerId', id);
             await supabase.from('payments').delete().eq('customerId', id);
             await supabase.from('orders').delete().eq('customerId', id);
             const { error } = await supabase.from('customers').delete().eq('id', id);
             if (error) throw error;
-            
             setCustomers(prev => prev.filter(c => c.id !== id));
         } catch (error: any) {
             alert(getFriendlyErrorMessage(error));
@@ -649,9 +574,15 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         const header = rows[0].split(',').map(h => h.trim());
         const requiredHeaders = ['name', 'address', 'phone', 'milkPrice', 'defaultQuantity']; 
         if (!requiredHeaders.every(h => header.includes(h))) {
-            throw new Error(`Invalid CSV header. Required headers are: ${requiredHeaders.join(', ')}`);
+            throw new Error(`Invalid CSV header. Required: ${requiredHeaders.join(', ')}`);
         }
         
+        // Create a lookup map of existing customers by phone to preserve locations
+        const existingCustomerMap = new Map<string, Customer>();
+        customers.forEach(c => {
+            if (c.phone) existingCustomerMap.set(c.phone, c);
+        });
+
         const newCustomersData = rows.slice(1).map(row => {
             const values = row.split(',');
             const getColumnValue = (columnName: string) => values[header.indexOf(columnName)]?.trim() || '';
@@ -664,8 +595,19 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
             const phoneRaw = getColumnValue('phone').replace(/\D/g, '');
             const phoneFormatted = phoneRaw ? `+91${phoneRaw.slice(-10)}` : '';
 
-            const lat = parseFloat(getColumnValue('locationLat'));
-            const lng = parseFloat(getColumnValue('locationLng'));
+            // Check for existing location if CSV is blank
+            const existing = existingCustomerMap.get(phoneFormatted);
+            const csvLat = getColumnValue('locationLat');
+            const csvLng = getColumnValue('locationLng');
+
+            let lat: number | undefined = csvLat ? parseFloat(csvLat) : undefined;
+            let lng: number | undefined = csvLng ? parseFloat(csvLng) : undefined;
+
+            // PRESERVATION LOGIC: If CSV is empty, keep existing DB value
+            if (existing) {
+                if (isNaN(lat as number) || !csvLat) lat = existing.locationLat;
+                if (isNaN(lng as number) || !csvLng) lng = existing.locationLng;
+            }
 
             return {
                 name: getColumnValue('name'),
@@ -677,28 +619,41 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 status: status as 'active' | 'inactive',
                 previousBalance: parseFloat(getColumnValue('previousBalance')) || 0,
                 balanceAsOfDate: getColumnValue('balanceAsOfDate') || null,
-                locationLat: isNaN(lat) ? undefined : lat,
-                locationLng: isNaN(lng) ? undefined : lng,
+                locationLat: isNaN(lat as number) ? undefined : lat,
+                locationLng: isNaN(lng as number) ? undefined : lng,
             };
-        }).filter(customer => customer.name);
+        }).filter(customer => customer.name && customer.phone);
 
         if (newCustomersData.length === 0) {
-            alert("No valid customer data found to import.");
+            alert("No valid customer data found to import. Ensure phone numbers are provided.");
             return;
         }
 
-        const { data, error } = await supabase.from('customers').insert(newCustomersData).select();
+        // Use upsert on phone to ensure we don't duplicate or delete locations on existing rows
+        const { data, error } = await supabase
+            .from('customers')
+            .upsert(newCustomersData, { onConflict: 'phone' })
+            .select();
+
         if (error) throw error;
 
         if (data) {
             const importedCustomers = data as Customer[];
-            setCustomers(prev => [...prev, ...importedCustomers].sort((a,b) => a.name.localeCompare(b.name)));
+            // Merge back into state
+            setCustomers(prev => {
+                const merged = [...prev];
+                importedCustomers.forEach(imported => {
+                    const idx = merged.findIndex(p => p.phone === imported.phone);
+                    if (idx !== -1) merged[idx] = imported;
+                    else merged.push(imported);
+                });
+                return merged.sort((a,b) => a.name.localeCompare(b.name));
+            });
             
-            // Set passwords for imported customers in the background
             for (const customer of importedCustomers) {
                 await setDefaultPasswordIfNeeded(customer.id, customer.phone);
             }
-            alert(`${importedCustomers.length} customers imported successfully.`);
+            alert(`${importedCustomers.length} customers imported/updated successfully. Locations preserved.`);
         }
   }
 
@@ -710,17 +665,12 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
     reader.onload = async (e) => {
         try {
             const text = e.target?.result;
-            if (typeof text !== 'string') {
-              alert('Error reading file content.');
-              return;
-            }
+            if (typeof text !== 'string') return;
             await processAndImportCustomers(text);
         } catch (error: any) {
-            alert("An error occurred while importing: " + getFriendlyErrorMessage(error));
+            alert("Error: " + getFriendlyErrorMessage(error));
         } finally {
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
     reader.readAsText(file);
@@ -728,24 +678,13 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
 
   const handleDeleteAllCustomers = async () => {
     if (!canDelete) return;
-    
-    const confirmation = prompt(
-      "DANGER: This will permanently delete ALL customers. Type 'DELETE ALL CUSTOMERS' to confirm."
-    );
-
-    if (confirmation !== 'DELETE ALL CUSTOMERS') {
-      alert('Action cancelled.');
-      return;
-    }
-    
+    const confirmation = prompt("DANGER: Type 'DELETE ALL CUSTOMERS' to confirm.");
+    if (confirmation !== 'DELETE ALL CUSTOMERS') return;
     setIsSubmitting(true);
     try {
         const { error } = await supabase.rpc('admin_delete_all_customers');
         if (error) throw error;
-        
-        alert('All customer data has been successfully deleted.');
         window.location.reload();
-        
     } catch (error: any) {
         alert(getFriendlyErrorMessage(error));
     } finally {
@@ -800,9 +739,7 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 customerToEdit={customerToEdit}
                 isSubmitting={isSubmitting}
                 onResetPassword={async (newPassword) => {
-                    if (customerToEdit) {
-                        return await handleResetPassword(customerToEdit.id, newPassword);
-                    }
+                    if (customerToEdit) return await handleResetPassword(customerToEdit.id, newPassword);
                     return { success: false };
                 }}
             />
@@ -812,7 +749,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
              {customers.length > 0 ? (
                 filteredCustomers.length > 0 ? (
                     <div>
-                        {/* Desktop Table View */}
                         <div className="overflow-x-auto hidden lg:block">
                             <table className="w-full text-sm text-left text-gray-500">
                                 <thead className="text-xs text-gray-700 uppercase bg-gray-50">
@@ -864,8 +800,6 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                 </tbody>
                             </table>
                         </div>
-
-                        {/* Mobile & Tablet Card View */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 lg:hidden">
                             {filteredCustomers.map(customer => (
                                 <div key={customer.id} className="bg-white border rounded-lg shadow-sm p-4 flex flex-col justify-between">
@@ -882,21 +816,12 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                                             <div className="flex items-center">
                                                 <p><strong className="font-medium">Address:</strong> {customer.address}</p>
                                                 {customer.locationLat && customer.locationLng && (
-                                                    <a 
-                                                        href={`https://www.google.com/maps/search/?api=1&query=${customer.locationLat},${customer.locationLng}`} 
-                                                        target="_blank" 
-                                                        rel="noopener noreferrer"
-                                                        className="ml-2 text-blue-500 hover:text-blue-700"
-                                                        title="Open in Google Maps"
-                                                    >
+                                                    <a href={`https://www.google.com/maps/search/?api=1&query=${customer.locationLat},${customer.locationLng}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-500 hover:text-blue-700">
                                                         <MapPinIcon className="h-5 w-5" />
                                                     </a>
                                                 )}
                                             </div>
                                             <p><strong className="font-medium">Phone:</strong> {customer.phone || 'N/A'}</p>
-                                            {customer.userId && (
-                                                <p className="font-semibold text-green-600 flex items-center"><CheckIcon className="h-4 w-4 mr-1"/> Login Active</p>
-                                            )}
                                         </div>
                                     </div>
                                     {!isReadOnly && (
@@ -912,21 +837,11 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
                 ) : (
                     <div className="text-center py-12 px-6">
                         <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
-                        <p className="mt-1 text-sm text-gray-500">Try a different name, address, or phone number.</p>
                     </div>
                 )
             ) : (
                 <div className="text-center py-12 px-6">
                     <h3 className="text-lg font-medium text-gray-700">No Customers Found</h3>
-                    <p className="mt-1 text-sm text-gray-500">Get started by adding a new customer.</p>
-                    {!isReadOnly && (
-                        <div className="mt-4">
-                            <button onClick={openAddModal} className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
-                                <PlusIcon className="h-5 w-5 mr-2"/>
-                                Add Customer
-                            </button>
-                        </div>
-                    )}
                 </div>
             )}
         </div>
@@ -934,28 +849,10 @@ const CustomerManager: React.FC<CustomerManagerProps> = ({ customers, setCustome
         {canDelete && customers.length > 0 && (
             <div className="mt-8 p-4 bg-red-50 border-t-4 border-red-500 rounded-b-lg shadow-md">
                 <h3 className="text-lg font-bold text-red-800">Danger Zone</h3>
-                <p className="mt-1 text-sm text-red-700">
-                    This action is irreversible and will permanently delete all customer data.
-                </p>
-                <div className="mt-4">
-                    <button
-                        onClick={handleDeleteAllCustomers}
-                        disabled={isSubmitting}
-                        className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg shadow-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-wait"
-                    >
-                        {isSubmitting ? (
-                            <>
-                                <SpinnerIcon className="animate-spin h-5 w-5 mr-2" />
-                                Deleting...
-                            </>
-                        ) : (
-                            <>
-                                <TrashIcon className="h-5 w-5 mr-2" />
-                                Delete All Customers
-                            </>
-                        )}
-                    </button>
-                </div>
+                <button onClick={handleDeleteAllCustomers} disabled={isSubmitting} className="mt-4 flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    {isSubmitting ? <SpinnerIcon className="animate-spin h-5 w-5 mr-2" /> : <TrashIcon className="h-5 w-5 mr-2" />}
+                    Delete All Customers
+                </button>
             </div>
         )}
     </div>
