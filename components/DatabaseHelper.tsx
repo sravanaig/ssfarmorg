@@ -68,14 +68,12 @@ const DatabaseHelper: React.FC<DatabaseHelperProps> = ({ projectRef, errorMessag
                 const { data, error } = await supabase.from(table).select('*');
                 if (error) {
                     console.error(`Error backing up table ${table}:`, error);
-                    // Continue with other tables, but note the error
                     backupData.tables[table] = { error: error.message };
                 } else {
                     backupData.tables[table] = data;
                 }
             }
 
-            // Backup Users (via RPC due to permissions)
             const { data: users, error: usersError } = await supabase.rpc('get_all_users');
             if (usersError) {
                  console.warn("Could not backup users list via RPC", usersError);
@@ -118,8 +116,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected'))
 );
 
--- UPDATE ROLE CONSTRAINT to include 'super_admin'
--- We drop the old constraint if it exists to allow the new role.
 DO $$ 
 BEGIN 
     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_role_check') THEN 
@@ -131,9 +127,6 @@ ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check
 CHECK (role IN ('super_admin', 'admin', 'staff'));
 
 -- STEP 4: Hierarchical Role Checking Function
--- This is critical. It allows 'admin' to do everything 'staff' can, and 'super_admin' to do everything 'admin' can.
--- Drop first to avoid parameter name conflicts if signature changes. 
--- CASCADE is required because RLS policies depend on this function.
 DROP FUNCTION IF EXISTS check_user_role(text) CASCADE;
 
 CREATE OR REPLACE FUNCTION check_user_role(required_role TEXT)
@@ -155,7 +148,6 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Hierarchy Logic
   IF required_role = 'staff' THEN
     RETURN user_role IN ('staff', 'admin', 'super_admin');
   ELSIF required_role = 'admin' THEN
@@ -170,14 +162,12 @@ $$;
 GRANT EXECUTE ON FUNCTION check_user_role(TEXT) TO authenticated;
 
 
--- STEP 5: RLS Policies (Updated to use hierarchical check_user_role)
+-- STEP 5: RLS Policies
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 
--- Clean old policies
 DROP POLICY IF EXISTS "Users can read their own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can manage their own profile" ON public.profiles;
 
--- Profiles Policies
 CREATE POLICY "Users can read their own profile" ON public.profiles FOR SELECT
   USING ( auth.uid() = id );
 
@@ -195,8 +185,6 @@ LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
-  -- Default role is staff, default status is pending.
-  -- Super admin is set manually via migration script below.
   INSERT INTO public.profiles (id, role, status)
   VALUES (new.id, 'staff', 'pending');
   RETURN new;
@@ -209,9 +197,7 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 
--- STEP 7: Admin Management Functions (Updated for Hierarchy)
-
--- Get Users (Admins and Super Admins can view)
+-- STEP 7: Admin Management Functions
 DROP FUNCTION IF EXISTS public.get_all_users();
 CREATE OR REPLACE FUNCTION get_all_users()
 RETURNS TABLE (
@@ -226,7 +212,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-    -- Check for admin privileges (includes super_admin)
     IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'Access denied';
     END IF;
@@ -244,7 +229,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION get_all_users() TO authenticated;
 
--- Delete User (Admins and Super Admins)
 DROP FUNCTION IF EXISTS public.delete_user_by_id(uuid);
 CREATE OR REPLACE FUNCTION delete_user_by_id(target_user_id uuid)
 RETURNS void
@@ -263,7 +247,6 @@ BEGIN
     SELECT role INTO target_role FROM public.profiles WHERE id = target_user_id;
     SELECT role INTO my_role FROM public.profiles WHERE id = auth.uid();
 
-    -- Protection: Only Super Admin can delete Admins.
     IF target_role = 'admin' AND my_role <> 'super_admin' THEN
         RAISE EXCEPTION 'Only Super Admins can delete Administrators.';
     END IF;
@@ -281,7 +264,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION delete_user_by_id(uuid) TO authenticated;
 
--- Create User
 DROP FUNCTION IF EXISTS public.create_new_user(text, text, text);
 CREATE OR REPLACE FUNCTION create_new_user(
     p_email text,
@@ -310,7 +292,6 @@ BEGIN
 
     SELECT role INTO my_role FROM public.profiles WHERE id = auth.uid();
 
-    -- Hierarchy Check: Only Super Admin can create Admins
     IF p_role = 'admin' AND my_role <> 'super_admin' THEN
         RAISE EXCEPTION 'Only Super Admins can create Administrator accounts.';
     END IF;
@@ -349,7 +330,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION create_new_user(text, text, text) TO authenticated;
 
--- Update User Status
 CREATE OR REPLACE FUNCTION update_user_status(target_user_id uuid, new_status text)
 RETURNS void
 LANGUAGE plpgsql
@@ -365,7 +345,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION update_user_status(uuid, text) TO authenticated;
 
--- Update User Role
 CREATE OR REPLACE FUNCTION admin_update_user_role(target_user_id uuid, new_role text)
 RETURNS void
 LANGUAGE plpgsql
@@ -383,12 +362,10 @@ BEGIN
     SELECT role INTO my_role FROM public.profiles WHERE id = auth.uid();
     SELECT role INTO target_current_role FROM public.profiles WHERE id = target_user_id;
 
-    -- Rule: Regular Admins cannot make anyone an Admin or demote an Admin
     IF (new_role = 'admin' OR target_current_role = 'admin') AND my_role <> 'super_admin' THEN
         RAISE EXCEPTION 'Only Super Admins can manage Admin roles.';
     END IF;
 
-    -- Rule: Nobody can change Super Admin role via this function
     IF target_current_role = 'super_admin' OR new_role = 'super_admin' THEN
          RAISE EXCEPTION 'Super Admin roles cannot be modified via this interface.';
     END IF;
@@ -402,7 +379,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_update_user_role(uuid, text) TO authenticated;
 
--- RESET USER PASSWORD (Admin/Super Admin)
 CREATE OR REPLACE FUNCTION admin_reset_user_password(target_user_id uuid, new_password text)
 RETURNS void
 LANGUAGE plpgsql
@@ -413,7 +389,6 @@ DECLARE
     my_role text;
     target_role text;
 BEGIN
-    -- Basic permission check
     IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'Access denied';
     END IF;
@@ -421,23 +396,16 @@ BEGIN
     SELECT role INTO my_role FROM public.profiles WHERE id = auth.uid();
     SELECT role INTO target_role FROM public.profiles WHERE id = target_user_id;
 
-    -- Hierarchy Logic: 
-    -- Super Admin can reset ANYONE (Admin, Staff, or even themselves if they really want to here)
-    -- Admin can ONLY reset Staff.
-    
     IF my_role = 'super_admin' THEN
-        -- Allowed to proceed
         NULL;
     ELSIF my_role = 'admin' THEN
         IF target_role <> 'staff' THEN
             RAISE EXCEPTION 'Admins can only reset passwords for Staff members.';
         END IF;
     ELSE
-        -- Should be caught by initial check_user_role, but safe fallback
         RAISE EXCEPTION 'Access denied.';
     END IF;
 
-    -- Update the password
     UPDATE auth.users 
     SET encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
         updated_at = now()
@@ -464,11 +432,9 @@ CREATE TABLE IF NOT EXISTS public.customers (
 DROP INDEX IF EXISTS customers_phone_unique_not_null_idx;
 CREATE UNIQUE INDEX customers_phone_unique_not_null_idx ON public.customers (phone) WHERE phone IS NOT NULL AND phone <> '';
 
--- UPDATE CUSTOMERS TABLE FOR LOCATION
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "locationLat" double precision;
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "locationLng" double precision;
 
--- Other tables (Orders, Deliveries, etc.)
 CREATE TABLE IF NOT EXISTS public.orders (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     "customerId" uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
@@ -504,117 +470,82 @@ CREATE TABLE IF NOT EXISTS public.website_content (
 );
 
 
--- STEP 9: Table Permissions (Using Hierarchy)
-
+-- STEP 9: Table Permissions
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
 
--- Customers
 ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Admins can manage all customers" ON public.customers;
 DROP POLICY IF EXISTS "Staff can view/add customers" ON public.customers;
 DROP POLICY IF EXISTS "Staff can insert customers" ON public.customers;
 DROP POLICY IF EXISTS "Staff can update customers" ON public.customers;
 DROP POLICY IF EXISTS "Customers can view their own record" ON public.customers;
 
--- Admin check includes super_admin
 CREATE POLICY "Admins can manage all customers" ON public.customers FOR ALL
   USING ( check_user_role('admin') ) WITH CHECK ( check_user_role('admin') );
-  
--- Staff check includes admin and super_admin
 CREATE POLICY "Staff can view/add customers" ON public.customers FOR SELECT
   USING ( check_user_role('staff') );
-  
 CREATE POLICY "Staff can insert customers" ON public.customers FOR INSERT
   WITH CHECK ( check_user_role('staff') );
-  
 CREATE POLICY "Staff can update customers" ON public.customers FOR UPDATE
   USING ( check_user_role('staff') )
   WITH CHECK ( check_user_role('staff') );
-  
 CREATE POLICY "Customers can view their own record" ON public.customers FOR SELECT
   USING ( "userId" = auth.uid() );
-
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
--- Deliveries
 ALTER TABLE public.deliveries DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage deliveries" ON public.deliveries;
 DROP POLICY IF EXISTS "Staff view deliveries" ON public.deliveries;
 DROP POLICY IF EXISTS "Customers view own deliveries" ON public.deliveries;
-
 CREATE POLICY "Admins manage deliveries" ON public.deliveries FOR ALL
   USING ( check_user_role('admin') );
-
 CREATE POLICY "Staff view deliveries" ON public.deliveries FOR SELECT
   USING ( check_user_role('staff') );
-
 CREATE POLICY "Customers view own deliveries" ON public.deliveries FOR SELECT
   USING ( "customerId" IN (SELECT id FROM public.customers WHERE "userId" = auth.uid()) );
-
 ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 
--- Pending Deliveries
 ALTER TABLE public.pending_deliveries DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage pending" ON public.pending_deliveries;
 DROP POLICY IF EXISTS "Staff manage pending" ON public.pending_deliveries;
-
 CREATE POLICY "Admins manage pending" ON public.pending_deliveries FOR ALL
   USING ( check_user_role('admin') );
-
 CREATE POLICY "Staff manage pending" ON public.pending_deliveries FOR ALL
   USING ( check_user_role('staff') );
-
 ALTER TABLE public.pending_deliveries ENABLE ROW LEVEL SECURITY;
 
-
--- Payments
 ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage payments" ON public.payments;
 DROP POLICY IF EXISTS "Staff view payments" ON public.payments;
 DROP POLICY IF EXISTS "Customers view own payments" ON public.payments;
-
 CREATE POLICY "Admins manage payments" ON public.payments FOR ALL
   USING ( check_user_role('admin') );
-
 CREATE POLICY "Staff view payments" ON public.payments FOR SELECT
   USING ( check_user_role('staff') );
-
 CREATE POLICY "Customers view own payments" ON public.payments FOR SELECT
   USING ( "customerId" IN (SELECT id FROM public.customers WHERE "userId" = auth.uid()) );
-
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
--- Orders
 ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage orders" ON public.orders;
 DROP POLICY IF EXISTS "Staff manage orders" ON public.orders;
-
 CREATE POLICY "Admins manage orders" ON public.orders FOR ALL
   USING ( check_user_role('admin') );
-
 CREATE POLICY "Staff manage orders" ON public.orders FOR ALL
   USING ( check_user_role('staff') );
-
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
--- Website Content
 ALTER TABLE public.website_content DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage content" ON public.website_content;
 DROP POLICY IF EXISTS "Public view content" ON public.website_content;
-
 CREATE POLICY "Admins manage content" ON public.website_content FOR ALL
   USING ( check_user_role('admin') );
-
 CREATE POLICY "Public view content" ON public.website_content FOR SELECT
   USING ( true );
-
 ALTER TABLE public.website_content ENABLE ROW LEVEL SECURITY;
 
 
 -- STEP 10: Helper Functions
-
--- Reset Customer Password (Admin) - UPDATED FOR ROBUSTNESS
 CREATE OR REPLACE FUNCTION admin_set_customer_password(p_customer_id uuid, p_password text)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -630,20 +561,14 @@ BEGIN
   IF NOT check_user_role('admin') THEN
     RAISE EXCEPTION 'Access denied';
   END IF;
-  
   SELECT phone, "userId" INTO v_customer_phone, v_user_id FROM public.customers WHERE id = p_customer_id;
-  
   IF v_customer_phone IS NULL OR LENGTH(v_customer_phone) < 10 THEN
      RAISE EXCEPTION 'Invalid customer phone number';
   END IF;
-  
-  -- Ensure clean number
   v_customer_phone := REGEXP_REPLACE(v_customer_phone, '[^0-9]', '', 'g');
   v_customer_phone := RIGHT(v_customer_phone, 10);
   v_email := v_customer_phone || '@ssfarmorganic.local';
-  
   IF v_user_id IS NOT NULL THEN
-    -- Attempt to update existing user linked to customer
     UPDATE auth.users 
     SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
         email_confirmed_at = COALESCE(email_confirmed_at, now()),
@@ -651,22 +576,12 @@ BEGIN
         raw_app_meta_data = COALESCE(raw_app_meta_data, '{"provider": "email", "providers": ["email"]}'::jsonb),
         raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb)
     WHERE id = v_user_id;
-    
     GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
-    
-    -- If 0 rows updated, the user ID is stale (user deleted from auth but not customer). Treat as new/lookup.
-    IF v_rows_updated = 0 THEN
-        v_user_id := NULL;
-    END IF;
+    IF v_rows_updated = 0 THEN v_user_id := NULL; END IF;
   END IF;
-  
-  -- If v_user_id is NULL (either originally null or was stale)
   IF v_user_id IS NULL THEN
-    -- Check if user exists by email first (orphaned user case)
     SELECT id INTO v_user_id FROM auth.users WHERE email = v_email;
-    
     IF v_user_id IS NOT NULL THEN
-       -- User exists by email, update password and ensure confirmed
        UPDATE auth.users 
        SET encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
            email_confirmed_at = COALESCE(email_confirmed_at, now()),
@@ -675,28 +590,17 @@ BEGIN
            raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb)
        WHERE id = v_user_id;
     ELSE
-       -- Create new user
        v_user_id := gen_random_uuid();
-       INSERT INTO auth.users (
-         instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-         raw_app_meta_data, raw_user_meta_data, created_at, updated_at
-       ) VALUES (
-         '00000000-0000-0000-0000-000000000000', v_user_id, 'authenticated', 'authenticated',
-         v_email, extensions.crypt(p_password, extensions.gen_salt('bf')), now(),
-         '{"provider": "email", "providers": ["email"]}', '{}', now(), now()
-       );
+       INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+       VALUES ('00000000-0000-0000-0000-000000000000', v_user_id, 'authenticated', 'authenticated', v_email, extensions.crypt(p_password, extensions.gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{}', now(), now());
     END IF;
-    
-    -- Link the user ID to the customer record
     UPDATE public.customers SET "userId" = v_user_id WHERE id = p_customer_id;
   END IF;
-  
   RETURN v_user_id;
 END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_set_customer_password(uuid, text) TO authenticated;
 
--- DELETE Customer Login Only
 CREATE OR REPLACE FUNCTION admin_delete_customer_login(p_customer_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -709,9 +613,7 @@ BEGIN
     IF NOT check_user_role('admin') THEN
         RAISE EXCEPTION 'Access denied';
     END IF;
-    
     SELECT "userId" INTO v_user_id FROM public.customers WHERE id = p_customer_id;
-    
     IF v_user_id IS NOT NULL THEN
         DELETE FROM auth.users WHERE id = v_user_id;
     END IF;
@@ -719,29 +621,6 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION admin_delete_customer_login(uuid) TO authenticated;
 
-
--- Admin Delete All Customers (Danger)
-CREATE OR REPLACE FUNCTION admin_delete_all_customers()
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-    IF NOT check_user_role('super_admin') THEN
-        RAISE EXCEPTION 'Access denied';
-    END IF;
-    
-    -- Delete associated auth users for customers
-    DELETE FROM auth.users WHERE id IN (SELECT "userId" FROM public.customers WHERE "userId" IS NOT NULL);
-    
-    -- Tables with ON DELETE CASCADE will handle the rest, but let's be explicit about the main table
-    DELETE FROM public.customers;
-END;
-$$;
-GRANT EXECUTE ON FUNCTION admin_delete_all_customers() TO authenticated;
-
--- SELF HEALING: Link Customer to Auth User (Fixes broken links)
 CREATE OR REPLACE FUNCTION link_customer_to_auth_user(p_phone text)
 RETURNS void
 LANGUAGE plpgsql
@@ -751,49 +630,22 @@ AS $$
 DECLARE
   v_user_id uuid;
 BEGIN
-  -- Find the auth user ID for this phone (email format)
-  SELECT id INTO v_user_id
-  FROM auth.users
-  WHERE email = p_phone || '@ssfarmorganic.local';
-
+  SELECT id INTO v_user_id FROM auth.users WHERE email = p_phone || '@ssfarmorganic.local';
   IF v_user_id IS NOT NULL THEN
-    -- Update the customer record
-    -- Handle both formats: raw 10 digit or +91 prefixed
-    UPDATE public.customers
-    SET "userId" = v_user_id
-    WHERE phone = '+91' || p_phone
-       OR phone = p_phone
-       OR phone LIKE '%' || p_phone;
+    UPDATE public.customers SET "userId" = v_user_id WHERE phone = '+91' || p_phone OR phone = p_phone OR phone LIKE '%' || p_phone;
   END IF;
 END;
 $$;
 GRANT EXECUTE ON FUNCTION link_customer_to_auth_user(text) TO authenticated;
 
--- BULK FIX: Confirm all customer accounts (Fix "Invalid login" error for unconfirmed users)
-UPDATE auth.users
-SET email_confirmed_at = now(), updated_at = now()
-WHERE email LIKE '%@ssfarmorganic.local' AND email_confirmed_at IS NULL;
-
-
--- HIT COUNTER SETUP
 CREATE TABLE IF NOT EXISTS public.website_stats (
     name text PRIMARY KEY,
     value bigint DEFAULT 0
 );
-
--- Seed initial value
-INSERT INTO public.website_stats (name, value)
-VALUES ('total_visits', 0)
-ON CONFLICT (name) DO NOTHING;
-
--- Enable RLS
+INSERT INTO public.website_stats (name, value) VALUES ('total_visits', 0) ON CONFLICT (name) DO NOTHING;
 ALTER TABLE public.website_stats ENABLE ROW LEVEL SECURITY;
-
--- Allow public read
 DROP POLICY IF EXISTS "Public view stats" ON public.website_stats;
 CREATE POLICY "Public view stats" ON public.website_stats FOR SELECT USING (true);
-
--- Function to increment (security definer to bypass RLS for update)
 CREATE OR REPLACE FUNCTION increment_visitor_count()
 RETURNS bigint
 LANGUAGE plpgsql
@@ -803,99 +655,80 @@ AS $$
 DECLARE
   new_val bigint;
 BEGIN
-  INSERT INTO public.website_stats (name, value)
-  VALUES ('total_visits', 1)
-  ON CONFLICT (name)
-  DO UPDATE SET value = website_stats.value + 1
+  INSERT INTO public.website_stats (name, value) VALUES ('total_visits', 1)
+  ON CONFLICT (name) DO UPDATE SET value = website_stats.value + 1
   RETURNING value INTO new_val;
-  
   RETURN new_val;
 END;
 $$;
 GRANT EXECUTE ON FUNCTION increment_visitor_count() TO anon, authenticated, service_role;
 
--- BOOTSTRAP SUPER ADMIN (sravanaig@gmail.com)
+-- BOOTSTRAP SUPER ADMINS WITH CORRECT PASSWORDS
 DO $$
 DECLARE
-  v_super_admin_email text := 'sravanaig@gmail.com';
-  v_super_admin_password text := 'Gsravan@14';
-  v_super_admin_id uuid;
+  v_emails text[] := ARRAY['sravanaig@gmail.com', 'sravandbe@gmail.com'];
+  v_email text;
+  v_password text;
+  v_admin_id uuid;
 BEGIN
-  -- Check if user exists
-  SELECT id INTO v_super_admin_id FROM auth.users WHERE email = v_super_admin_email;
+  FOREACH v_email IN ARRAY v_emails
+  LOOP
+    -- Set password based on email
+    IF v_email = 'sravandbe@gmail.com' THEN
+        v_password := '@bhi#ari2106';
+    ELSE
+        v_password := 'Gsravan@14';
+    END IF;
 
-  IF v_super_admin_id IS NULL THEN
-    -- Create new Super Admin
-    v_super_admin_id := gen_random_uuid();
-    INSERT INTO auth.users (
-      instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-      raw_app_meta_data, raw_user_meta_data, created_at, updated_at
-    ) VALUES (
-      '00000000-0000-0000-0000-000000000000', v_super_admin_id, 'authenticated', 'authenticated',
-      v_super_admin_email, extensions.crypt(v_super_admin_password, extensions.gen_salt('bf')), now(),
-      '{"provider": "email", "providers": ["email"]}', '{}', now(), now()
-    );
-  ELSE
-    -- Update existing Super Admin password
-    UPDATE auth.users
-    SET encrypted_password = extensions.crypt(v_super_admin_password, extensions.gen_salt('bf')),
-        email_confirmed_at = now(),
-        updated_at = now()
-    WHERE id = v_super_admin_id;
-  END IF;
+    SELECT id INTO v_admin_id FROM auth.users WHERE email = v_email;
 
-  -- Ensure Profile exists and is Super Admin
-  INSERT INTO public.profiles (id, role, status)
-  VALUES (v_super_admin_id, 'super_admin', 'approved')
-  ON CONFLICT (id) DO UPDATE
-  SET role = 'super_admin', status = 'approved';
+    IF v_admin_id IS NULL THEN
+      v_admin_id := gen_random_uuid();
+      INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+      VALUES ('00000000-0000-0000-0000-000000000000', v_admin_id, 'authenticated', 'authenticated', v_email, extensions.crypt(v_password, extensions.gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{}', now(), now());
+    ELSE
+      UPDATE auth.users 
+      SET encrypted_password = extensions.crypt(v_password, extensions.gen_salt('bf')),
+          email_confirmed_at = now(), updated_at = now()
+      WHERE id = v_admin_id;
+    END IF;
 
+    INSERT INTO public.profiles (id, role, status)
+    VALUES (v_admin_id, 'super_admin', 'approved')
+    ON CONFLICT (id) DO UPDATE SET role = 'super_admin', status = 'approved';
+  END LOOP;
 END $$;`;
 
     return (
         <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-md">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Database Troubleshooting & Setup</h3>
-                
                 {errorMessage && (
                     <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
                         <p className="font-bold">Detected Error:</p>
                         <p className="font-mono text-sm mt-1">{errorMessage}</p>
                     </div>
                 )}
-
                 <div className="mb-6">
                     <h4 className="font-semibold text-gray-700 mb-2">1. Backup Data</h4>
-                    <p className="text-sm text-gray-600 mb-3">Before making any changes, it is highly recommended to download a backup of your current data.</p>
-                    <button 
-                        onClick={handleBackup} 
-                        disabled={isBackingUp}
-                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    >
+                    <button onClick={handleBackup} disabled={isBackingUp} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50">
                         {isBackingUp ? <SpinnerIcon className="animate-spin h-5 w-5 mr-2" /> : <DownloadIcon className="h-5 w-5 mr-2" />}
                         {isBackingUp ? 'Creating Backup...' : 'Download Full Backup'}
                     </button>
                 </div>
-
                 <div className="mb-6">
                     <h4 className="font-semibold text-gray-700 mb-2">2. Database Setup Script</h4>
-                    <p className="text-sm text-gray-600 mb-3">
-                        Run this SQL script in the Supabase SQL Editor to fix schema issues, set up permissions, and update functions.
-                        This is safe to run multiple times (it uses "IF NOT EXISTS" and "OR REPLACE").
-                    </p>
                     <CollapsibleSection title="View Full Setup SQL" defaultOpen={true}>
                         {fullSetupSql}
                     </CollapsibleSection>
                 </div>
-                
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
                     <p className="font-semibold">Instructions:</p>
                     <ol className="list-decimal ml-5 mt-1 space-y-1">
                         <li>Go to your <a href={`https://supabase.com/dashboard/project/${projectRef}/sql`} target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Supabase SQL Editor</a>.</li>
-                        <li>Click "New Query".</li>
                         <li>Copy the SQL script above.</li>
-                        <li>Paste it into the editor and click "Run".</li>
-                        <li>Once successful, refresh this page.</li>
+                        <li>Paste and click "Run".</li>
+                        <li>Refresh this page.</li>
                     </ol>
                 </div>
             </div>

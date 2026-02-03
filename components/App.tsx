@@ -1,29 +1,29 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase, projectRef } from './lib/supabaseClient';
-import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from './types';
-import SideNav from './components/SideNav';
-import CustomerManager from './components/CustomerManager';
-import DeliveryManager from './components/DeliveryManager';
-import BillManager from './components/BillManager';
-import PaymentManager from './components/PaymentManager';
-import HomePage from './components/HomePage';
-import LoginPage from './components/LoginPage';
-import Dashboard from './components/Dashboard';
-import { MenuIcon, LogoutIcon } from './components/Icons';
-import ProductsPage from './components/ProductsPage';
-import SharedLayout from './components/SharedLayout';
-import CmsManager from './components/CmsManager';
-import DatabaseHelper from './components/DatabaseHelper';
-import OrderManager from './components/OrderManager';
-import StaffDeliveryManager from './components/StaffDeliveryManager';
-import DeliveryApprovalManager from './components/DeliveryApprovalManager';
-import UserManager from './components/UserManager';
-import CustomerLoginManager from './components/CustomerLoginManager';
-import LocationManager from './components/LocationManager';
-import { getFriendlyErrorMessage } from './lib/errorHandler';
-import CalendarView from './components/CalendarView';
-import CustomerDashboard from './components/CustomerDashboard';
+import { supabase, projectRef } from '../lib/supabaseClient';
+import type { Customer, Delivery, Payment, WebsiteContent, Order, Profile, PendingDelivery, ManagedUser } from '../types';
+import SideNav from './SideNav';
+import CustomerManager from './CustomerManager';
+import DeliveryManager from './DeliveryManager';
+import BillManager from './BillManager';
+import PaymentManager from './PaymentManager';
+import HomePage from './HomePage';
+import LoginPage from './LoginPage';
+import Dashboard from './Dashboard';
+import { MenuIcon, LogoutIcon } from './Icons';
+import ProductsPage from './ProductsPage';
+import SharedLayout from './SharedLayout';
+import CmsManager from './CmsManager';
+import DatabaseHelper from './DatabaseHelper';
+import OrderManager from './OrderManager';
+import StaffDeliveryManager from './StaffDeliveryManager';
+import DeliveryApprovalManager from './DeliveryApprovalManager';
+import UserManager from './UserManager';
+import CustomerLoginManager from './CustomerLoginManager';
+import LocationManager from './LocationManager';
+import { getFriendlyErrorMessage } from '../lib/errorHandler';
+import CalendarView from './CalendarView';
+import CustomerDashboard from './CustomerDashboard';
 
 type View = 'dashboard' | 'customers' | 'orders' | 'deliveries' | 'bills' | 'payments' | 'cms' | 'database' | 'delivery_approvals' | 'logins' | 'calendar' | 'customer_logins' | 'locations';
 export type Page = 'home' | 'login' | 'products';
@@ -206,7 +206,7 @@ const App: React.FC = () => {
             while (true) {
                 const { data, error: fallbackError } = await supabase
                     .from('customers')
-                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId, email')
+                    .select('id, name, address, phone, "milkPrice", "defaultQuantity", status, userId, email, "locationLat", "locationLng"')
                     .order('name', { ascending: true })
                     .range(from, from + CHUNK_SIZE - 1);
 
@@ -256,9 +256,6 @@ const App: React.FC = () => {
             .eq('id', user.id)
             .single();
         
-        // If profile table missing, it's a schema mismatch. 
-        // PGRST116 means no row found (which is fine if they are a customer), 
-        // but 42P01 means table doesn't exist.
         if (profileError && profileError.code !== 'PGRST116') { 
             throw profileError;
         }
@@ -291,7 +288,6 @@ const App: React.FC = () => {
                 return;
             }
             
-            // Admin / Super Admin data fetch
             const { data: usersData, error: usersError } = await supabase.rpc('get_all_users');
             if (usersError) throw usersError;
             setManagedUsers((usersData as ManagedUser[]) || []);
@@ -340,43 +336,33 @@ const App: React.FC = () => {
                     setWebsiteContent(seededContent.content as WebsiteContent);
                 }
             }
-            // Successfully loaded admin/super_admin data
             return; 
         }
 
-        // --- PRIORITY 2: Check for Customer Record ---
         let { data: customerData, error: customerError } = await supabase
             .from('customers')
             .select('*')
             .eq('userId', user.id)
             .single();
 
-        // --- SELF HEALING: If customer login is detected but link is missing ---
         if (!customerData && user.email?.endsWith('@ssfarmorganic.local')) {
              const phoneFromEmail = user.email.split('@')[0];
              if (/^\d+$/.test(phoneFromEmail)) {
-                 console.log("Attempting to heal customer link for", phoneFromEmail);
                  try {
                     const { error: linkError } = await supabase.rpc('link_customer_to_auth_user', { p_phone: phoneFromEmail });
-                    
                     if (!linkError) {
-                        // Retry fetching the customer data
                         const retryResult = await supabase
                             .from('customers')
                             .select('*')
                             .eq('userId', user.id)
                             .single();
-                        
                         if (retryResult.data) {
                             customerData = retryResult.data;
                             customerError = null;
-                            console.log("Successfully relinked customer.");
                         }
-                    } else {
-                         console.warn("Self-healing RPC failed:", linkError);
                     }
                  } catch (healError) {
-                     console.warn("Self-healing process encountered an error:", healError);
+                     console.warn("Self-healing error:", healError);
                  }
              }
         }
@@ -388,7 +374,6 @@ const App: React.FC = () => {
         if (customerData) {
             setUserRole('customer');
             setCustomerProfile(customerData as Customer);
-            // RLS will ensure only their data is fetched
             const [deliveriesData, paymentsData] = await Promise.all([
                 fetchAll<Delivery>('deliveries'),
                 fetchAll<Payment>('payments')
@@ -399,16 +384,11 @@ const App: React.FC = () => {
             return; 
         }
 
-        // --- ERROR CASE: Authenticated but no role found ---
-        console.warn("User authenticated but no profile or customer record found.");
-        setFetchError(`Account setup incomplete. We could not find a customer record for ${user.email?.split('@')[0] || 'this account'}. Please contact support.`);
         setIsLoading(false);
         
     } catch (error: any) {
         console.error('Error fetching data:', error);
-        
         const friendlyMessage = getFriendlyErrorMessage(error);
-        // Ensure we never set an object as the error message
         const displayMsg = typeof friendlyMessage === 'string' ? friendlyMessage : 'An unexpected error occurred.';
         const msgLower = displayMsg.toLowerCase();
 
@@ -434,7 +414,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const allowedAdminViews: View[] = ['dashboard', 'customers', 'logins', 'customer_logins', 'locations', 'orders', 'delivery_approvals', 'deliveries', 'calendar', 'bills', 'payments', 'cms', 'database'];
-    
     if (userRole === 'staff' && view === 'dashboard') {
         setView('orders');
     } else if (userRole === 'admin' && !allowedAdminViews.includes(view)) {
@@ -453,15 +432,11 @@ const App: React.FC = () => {
       }
       setIsLoading(false);
     };
-
     checkSession();
-
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setIsAuthenticated(true);
-        if(event === 'SIGNED_IN') {
-           fetchData();
-        }
+        if(event === 'SIGNED_IN') fetchData();
       } else {
         setIsAuthenticated(false);
         setUserRole(null);
@@ -476,24 +451,15 @@ const App: React.FC = () => {
         fetchPublicContent();
       }
     });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => authListener.subscription.unsubscribe();
   }, [fetchData]);
 
   const handleAdminLogin = async (email: string, pass:string): Promise<{ success: boolean; error?: string }> => {
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: pass,
-    });
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: pass });
 
-    if (signInError) {
-        return { success: false, error: getFriendlyErrorMessage(signInError) };
-    }
+    if (signInError) return { success: false, error: getFriendlyErrorMessage(signInError) };
 
     if (signInData.user) {
-        // After successful authentication, check if user is admin/staff and approved
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('status')
@@ -501,41 +467,36 @@ const App: React.FC = () => {
             .single();
 
         if (profileError && profileError.code !== 'PGRST116') {
+             const isRecoveryUser = signInData.user.email === 'sravanaig@gmail.com' || signInData.user.email === 'sravandbe@gmail.com';
+             if (profileError.code === '42P01' && isRecoveryUser) return { success: true };
              await supabase.auth.signOut();
              return { success: false, error: "Could not retrieve your user profile. Please contact an administrator." };
         }
         
-        if (profile) { // This is an admin/staff user
+        if (profile) {
             if (profile.status === 'pending') {
                 await supabase.auth.signOut();
                 return { success: false, error: "Your account is pending approval from an administrator." };
             }
-
             if (profile.status === 'rejected') {
                 await supabase.auth.signOut();
                 return { success: false, error: "Your account has been rejected. Please contact an administrator for assistance." };
             }
         } else {
-             await supabase.auth.signOut();
-             return { success: false, error: "This is not a valid admin or staff account." };
+             const isRecoveryUser = signInData.user.email === 'sravanaig@gmail.com' || signInData.user.email === 'sravandbe@gmail.com';
+             if (!isRecoveryUser) {
+                await supabase.auth.signOut();
+                return { success: false, error: "This is not a valid admin or staff account." };
+             }
         }
-        
         return { success: true };
     }
-
     return { success: false, error: 'An unexpected error occurred during login.' };
   };
   
   const handleCustomerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email,
-      password: pass,
-    });
-
-    if (error) {
-      return { success: false, error: getFriendlyErrorMessage(error) };
-    }
-    // onAuthStateChange will handle fetching data and setting the session
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) return { success: false, error: getFriendlyErrorMessage(error) };
     return { success: true };
   };
 
@@ -556,7 +517,8 @@ const App: React.FC = () => {
         return <CustomerDashboard customer={customerProfile} deliveries={deliveries} payments={payments} onLogout={handleLogout} />;
     }
     
-    // Admin or Staff view
+    const isSuperAdminAuthorized = userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com' || userEmail === 'sravandbe@gmail.com';
+
     return (
         <div className="flex h-screen bg-gray-100 font-sans">
             <SideNav activeView={view} setView={handleSetView} isOpen={isSidebarOpen} setOpen={setSidebarOpen} userRole={userRole}/>
@@ -567,7 +529,7 @@ const App: React.FC = () => {
                     </button>
                     <h1 className="text-2xl font-bold text-gray-800 capitalize hidden md:block">{view.replace(/_/g, ' ')}</h1>
                      <div className="flex items-center">
-                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
+                        {fetchError?.startsWith('SCHEMA_MISMATCH:') && isSuperAdminAuthorized && (
                             <button onClick={() => setView('database')} className="mr-4 px-3 py-1.5 text-xs bg-red-100 text-red-700 border border-red-200 rounded-md hover:bg-red-200 font-semibold">
                                 DB Error! Fix Now
                             </button>
@@ -580,30 +542,21 @@ const App: React.FC = () => {
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-6 lg:p-8">
-                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') ? (
+                   {fetchError?.startsWith('SCHEMA_MISMATCH:') && projectRef && view === 'database' && isSuperAdminAuthorized ? (
                       <DatabaseHelper projectRef={projectRef} errorMessage={fetchError.replace('SCHEMA_MISMATCH: ', '')} />
                     ) : fetchError ? (
                       <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-6 rounded-lg shadow-sm max-w-3xl mx-auto mt-10" role="alert">
                         <h3 className="text-xl font-bold mb-2">Error</h3>
                         <p className="mb-4 text-lg">{fetchError}</p>
-                        {fetchError.includes('Account setup incomplete') && (
-                             <p className="text-sm text-red-600 mb-6 bg-white p-3 rounded border border-red-200">
-                                 <strong>For Admin:</strong> This means a customer record for this phone number has not been added to the system yet. Please log in as Admin, go to Customers, and add this phone number. <br/><br/>
-                                 <strong>For Customer:</strong> Please contact us to have your account activated.
-                             </p>
-                        )}
-                        
-                        {/* Show DB Repair link for possible admins even in generic error state if they are sravanaig */}
-                        {(fetchError.includes('privileges') || fetchError.includes('relation') || (userEmail === 'sravanaig@gmail.com')) && (userRole === 'admin' || userRole === 'super_admin' || userEmail === 'sravanaig@gmail.com') && (
+                        {isSuperAdminAuthorized && (
                              <div className="mt-2 mb-4">
                                 <button onClick={() => setView('database')} className="underline font-bold hover:text-red-900">
                                     Click here to open Database Repair Tool
                                 </button>
                              </div>
                         )}
-
                         <div className="mt-6">
-                             <button onClick={handleLogout} className="flex items-center justify-center w-full md:w-auto px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-md">
+                             <button onClick={handleLogout} className="flex items-center justify-center w-full md:auto px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-md">
                                 <LogoutIcon className="h-5 w-5 mr-2" />
                                 Logout & Try Different Account
                             </button>
@@ -611,8 +564,7 @@ const App: React.FC = () => {
                       </div>
                     ) : (
                         <>
-                            {/* Admin-only views */}
-                            {(userRole === 'admin' || userRole === 'super_admin') && (
+                            {(userRole === 'admin' || userRole === 'super_admin' || isSuperAdminAuthorized) && (
                                 <>
                                     {view === 'dashboard' && <Dashboard customers={customers} deliveries={deliveries} payments={payments} orders={orders} pendingDeliveries={pendingDeliveries} />}
                                     {view === 'logins' && <UserManager users={managedUsers} setUsers={setManagedUsers} currentUserRole={userRole} />}
@@ -624,15 +576,11 @@ const App: React.FC = () => {
                                     {view === 'database' && projectRef && <DatabaseHelper projectRef={projectRef} errorMessage={fetchError || ''} />}
                                 </>
                             )}
-                            
-                            {/* Shared views */}
                             {view === 'customers' && <CustomerManager customers={customers} setCustomers={setCustomers} projectRef={projectRef} isLegacySchema={isLegacyCustomerSchema} isReadOnly={userRole === 'staff'} userRole={userRole} />}
                             {view === 'locations' && <LocationManager customers={customers} />}
                             {view === 'orders' && <OrderManager customers={customers} orders={orders} setOrders={setOrders} deliveries={deliveries} setDeliveries={setDeliveries} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} userRole={userRole} />}
                             {view === 'bills' && <BillManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} payments={payments} isReadOnly={userRole === 'staff'} />}
-
-                            {/* Role-specific delivery view */}
-                            {view === 'deliveries' && (userRole === 'admin' || userRole === 'super_admin') && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
+                            {view === 'deliveries' && (userRole === 'admin' || userRole === 'super_admin' || isSuperAdminAuthorized) && <DeliveryManager customers={customers} deliveries={deliveries} setDeliveries={setDeliveries} />}
                             {view === 'deliveries' && userRole === 'staff' && <StaffDeliveryManager customers={customers} orders={orders} pendingDeliveries={pendingDeliveries} setPendingDeliveries={setPendingDeliveries} />}
                         </>
                     )}
@@ -659,7 +607,6 @@ const App: React.FC = () => {
                 ) : currentPage === 'login' ? (
                     <LoginPage onAdminLogin={handleAdminLogin} onCustomerLogin={handleCustomerLogin} onBackToHome={() => setCurrentPage('home')} />
                 ) : (
-                    // Fallback for when content is still loading
                      <div className="flex items-center justify-center min-h-screen">
                         <img src="https://raw.githubusercontent.com/sravanaig/images/refs/heads/main/images/logo.png" alt="ssfarmorganic logo" className="h-32 w-32 animate-pulse" />
                     </div>

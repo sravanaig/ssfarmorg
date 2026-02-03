@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment } from '../types';
-import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon } from './Icons';
+import { ShareIcon, PrintIcon, WhatsAppIcon, DownloadIcon, SearchIcon, ScanIcon, ClipboardIcon, CheckIcon } from './Icons';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorHandler';
 import QuantityInput from './QuantityInput';
@@ -44,6 +44,7 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
   const [isSaving, setIsSaving] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [isQrLoading, setIsQrLoading] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState(false);
 
   const allBillDetails = useMemo((): BillDetails[] => {
     if (!billingMonth) return [];
@@ -53,14 +54,10 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
     const endDate = new Date(Date.UTC(year, month, 0));
 
     const detailsForAllCustomers = customers.map(customer => {
-        // Previous Balance Calculation (NEW LOGIC)
         let previousBalance = 0;
-        
         if (customer.balanceAsOfDate && customer.previousBalance != null) {
             const openingBalanceDate = new Date(customer.balanceAsOfDate + 'T00:00:00Z');
-            
             previousBalance = customer.previousBalance;
-
             const interimDeliveries = deliveries.filter(d => {
                 const deliveryDate = new Date(d.date + 'T00:00:00Z');
                 return d.customerId === customer.id && deliveryDate >= openingBalanceDate && deliveryDate < startDate;
@@ -69,13 +66,10 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
                 const paymentDate = new Date(p.date + 'T00:00:00Z');
                 return p.customerId === customer.id && paymentDate >= openingBalanceDate && paymentDate < startDate;
             });
-            
             const totalInterimDue = interimDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
             const totalInterimPaid = interimPayments.reduce((sum, p) => sum + p.amount, 0);
-
             previousBalance += (totalInterimDue - totalInterimPaid);
         } else {
-            // Fallback to original full historical calculation
             const historicalDeliveries = deliveries.filter(d => {
                 const deliveryDate = new Date(d.date + 'T00:00:00Z');
                 return d.customerId === customer.id && deliveryDate < startDate;
@@ -84,13 +78,11 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
                 const paymentDate = new Date(p.date + 'T00:00:00Z');
                 return p.customerId === customer.id && paymentDate < startDate;
             });
-
             const totalHistoricalDue = historicalDeliveries.reduce((sum, d) => sum + (d.quantity * customer.milkPrice), 0);
             const totalHistoricalPaid = historicalPayments.reduce((sum, p) => sum + p.amount, 0);
             previousBalance = totalHistoricalDue - totalHistoricalPaid;
         }
 
-        // Current Month Calculations
         const deliveriesForPeriod = deliveries.filter(d => {
             const deliveryDate = new Date(d.date + 'T00:00:00Z');
             return d.customerId === customer.id && deliveryDate >= startDate && deliveryDate <= endDate;
@@ -106,48 +98,28 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
         const totalPaid = paymentsForPeriod.reduce((sum, p) => sum + p.amount, 0);
         const balance = previousBalance + totalAmount - totalPaid;
 
-        return {
-            customer,
-            period: `${startDate.toLocaleDateString('en-CA', { timeZone: 'UTC' })} - ${endDate.toLocaleDateString('en-CA', { timeZone: 'UTC' })}`,
-            deliveriesForPeriod,
-            totalQuantity,
-            totalAmount,
-            totalPaid,
-            balance,
-            previousBalance
-        };
+        return { customer, period: `${startDate.toLocaleDateString('en-CA', { timeZone: 'UTC' })} - ${endDate.toLocaleDateString('en-CA', { timeZone: 'UTC' })}`, deliveriesForPeriod, totalQuantity, totalAmount, totalPaid, balance, previousBalance };
     });
     
     const lowercasedFilter = searchTerm.toLowerCase().trim();
-
     return detailsForAllCustomers.filter(details => {
         const hasActivity = details.deliveriesForPeriod.length > 0 || details.totalPaid > 0;
-        // Show if active, or if inactive but with a non-zero balance or activity in the current period.
         const isVisible = details.customer.status === 'active' || details.balance !== 0 || hasActivity;
-        
         if (!isVisible) return false;
-
-        if (!lowercasedFilter) {
-            return true;
-        }
-
+        if (!lowercasedFilter) return true;
         return details.customer.name.toLowerCase().includes(lowercasedFilter);
     });
-
   }, [billingMonth, customers, deliveries, payments, searchTerm]);
 
   useEffect(() => {
-    // If the selected customer is filtered out, deselect them and clear pending changes
     if (selectedCustomerId && !allBillDetails.some(d => d.customer.id === selectedCustomerId)) {
       setSelectedCustomerId('');
     }
   }, [allBillDetails, selectedCustomerId]);
 
   useEffect(() => {
-    // Clear any pending edits when the customer or month changes
     setEditedQuantities(new Map());
   }, [selectedCustomerId, billingMonth]);
-
 
   const selectedCustomerBillDetails = useMemo(() => {
     if (!selectedCustomerId) return null;
@@ -163,20 +135,18 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
                 const { balance } = selectedCustomerBillDetails;
                 const [year, month] = billingMonth.split('-');
                 const billingPeriodForNote = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'short', year: 'numeric' });
-                const upiLink = `upi://pay?pa=9959202010@upi&pn=ssfarmorganic&am=${balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
+                // UPDATED UPI ID: 9966641724@upi
+                const upiLink = `upi://pay?pa=9966641724@upi&pn=ssfarmorganic&am=${balance.toFixed(2)}&tn=Bill for ${billingPeriodForNote}`;
                 const qrCodeApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiLink)}`;
-
                 const response = await fetch(qrCodeApiUrl);
                 if (!response.ok) throw new Error('Failed to fetch QR code');
                 const blob = await response.blob();
-                
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     setQrCodeDataUrl(reader.result as string);
                     setIsQrLoading(false);
                 };
                 reader.readAsDataURL(blob);
-
             } catch (error) {
                 console.error("Failed to generate QR code:", error);
                 setIsQrLoading(false);
@@ -194,20 +164,11 @@ const BillManager: React.FC<BillManagerProps> = ({ customers, deliveries, setDel
   
   const generateBillMessage = (details: BillDetails | null) => {
     if (!details) return '';
-
     const { customer, totalQuantity, totalAmount, totalPaid, balance, previousBalance } = details;
-    
     const [year, month] = billingMonth.split('-');
     const billingPeriod = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+    const paymentStatus = balance > 0 ? `*To Pay: ₹${balance.toFixed(2)}*` : `*Bill is settled.*`;
     
-    const upiId = '9959202010@upi';
-    const paymentMessage = balance > 0
-        ? `
-*To Pay: ₹${balance.toFixed(2)}*
-Please pay using UPI to: \`${upiId}\`
-`
-        : `*Bill is settled. Thank you!*`;
-
     return `
 Hi ${customer.name},
 
@@ -221,50 +182,36 @@ This Month's Bill: ₹${totalAmount.toFixed(2)}
 Payments Received: ₹${totalPaid.toFixed(2)}
 -----------------------------------
 *Outstanding Balance: ₹${balance.toFixed(2)}*
-${paymentMessage}
+${paymentStatus}
 
-Thank you for your business!
+Payment may be sent to: *9966641724*
+(PhonePe or Google Pay)
 `.trim().replace(/^\s+/gm, '');
   };
   
   const handleShareBill = async () => {
     if (!selectedCustomerBillDetails) return;
-
     const message = generateBillMessage(selectedCustomerBillDetails);
     const { balance, customer } = selectedCustomerBillDetails;
-
     if (balance <= 0) {
         navigator.clipboard.writeText(message).then(() => alert('Bill is settled. Copied to clipboard!'));
         return;
     }
-
-    // Try to use Web Share API with image if available
     if (navigator.share && qrCodeDataUrl) {
         try {
             const blob = await (await fetch(qrCodeDataUrl)).blob();
             const qrFile = new File([blob], `ssfarmorganic_qr_bill.png`, { type: 'image/png' });
-
             if (navigator.canShare && navigator.canShare({ files: [qrFile] })) {
-                await navigator.share({
-                    title: `Milk Bill for ${customer.name}`,
-                    text: message,
-                    files: [qrFile],
-                });
-                return; // Shared successfully
+                await navigator.share({ title: `Milk Bill for ${customer.name}`, text: message, files: [qrFile] });
+                return;
             }
         } catch (error) {
             console.error('Error sharing with QR code:', error);
-            // Fallthrough to share text only
         }
     }
-
-    // Fallback for browsers that don't support file sharing or if QR fails
     if (navigator.share) {
         try {
-            await navigator.share({
-                title: `Milk Bill for ${customer.name}`,
-                text: message,
-            });
+            await navigator.share({ title: `Milk Bill for ${customer.name}`, text: message });
         } catch (error) {
             console.error('Error sharing text:', error);
             navigator.clipboard.writeText(message).then(() => alert('Sharing failed. Bill text copied to clipboard!'));
@@ -273,7 +220,6 @@ Thank you for your business!
         navigator.clipboard.writeText(message).then(() => alert('Share API not supported. Bill details copied to clipboard!'));
     }
   };
-
 
   const handleSendWhatsApp = (details: BillDetails | null) => {
     if (!details) return;
@@ -288,6 +234,12 @@ Thank you for your business!
     window.open(whatsappUrl, '_blank');
   };
 
+  const copyUpiToClipboard = () => {
+    navigator.clipboard.writeText('9966641724@upi');
+    setCopiedUpi(true);
+    setTimeout(() => setCopiedUpi(false), 2000);
+  };
+
   const generateBillPage = (doc: any, details: BillDetails) => {
     const { customer, totalQuantity, totalAmount, totalPaid, balance, previousBalance, deliveriesForPeriod, period } = details;
     const margin = 14;
@@ -295,87 +247,53 @@ Thank you for your business!
     const pageHeight = doc.internal.pageSize.getHeight();
     const contentWidth = pageWidth - margin * 2;
     const rightAlignX = pageWidth - margin;
-
-    // Header
     doc.setFontSize(20);
     doc.text('ssfarmorganic - Milk Bill', margin, 22);
- 
-    // Customer Info
     doc.setFontSize(12);
     doc.text(`Customer: ${customer.name}`, margin, 40);
-    
     const addressLines = doc.splitTextToSize(`Address: ${customer.address}`, contentWidth);
     doc.text(addressLines, margin, 46);
-    let currentY = 46 + (addressLines.length * 5); // Adjust Y based on number of address lines
-    
+    let currentY = 46 + (addressLines.length * 5);
     doc.text(`Phone: ${customer.phone}`, margin, currentY);
     currentY += 6;
     doc.text(`Billing Period: ${period}`, margin, currentY);
     currentY += 12;
-
-    // Deliveries Table
     const tableColumn = ["Date", "Quantity (L)"];
     const tableRows = deliveriesForPeriod.map(d => [new Date(d.date + 'T00:00:00Z').toLocaleDateString('en-CA', { timeZone: 'UTC' }), d.quantity.toFixed(2)]);
-    doc.autoTable({ 
-        head: [tableColumn], 
-        body: tableRows, 
-        startY: currentY, 
-        theme: 'grid', 
-        headStyles: { fillColor: [34, 139, 34] } 
-    });
-    
-    let finalY = doc.lastAutoTable.finalY;
-
-    // --- Summary Section ---
-    const summaryHeight = 80; // Approximate height needed for the summary section
+    (doc as any).autoTable({ head: [tableColumn], body: tableRows, startY: currentY, theme: 'grid', headStyles: { fillColor: [34, 139, 34] } });
+    let finalY = (doc as any).lastAutoTable.finalY;
+    const summaryHeight = 80;
     if (finalY + summaryHeight > pageHeight) {
         doc.addPage();
-        finalY = margin; // Reset Y position for the new page
+        finalY = margin;
     }
-
     doc.setFontSize(12);
     doc.text('Summary', margin, finalY + 15);
-    
     let summaryY = finalY + 23;
-    
     const addLine = (label: string, value: string, options: { isBold?: boolean; size?: number; color?: number[], isSubline?: boolean } = {}) => {
         const { isBold = false, size = 12, color = [0, 0, 0], isSubline = false } = options;
-        
         doc.setFontSize(size);
         doc.setTextColor(color[0], color[1], color[2]);
         if (isBold) doc.setFont(undefined, 'bold');
-        
         doc.text(label, isSubline ? margin + 4 : margin, summaryY);
-        if (value) {
-           doc.text(value, rightAlignX, summaryY, { align: 'right' });
-        }
-        
+        if (value) doc.text(value, rightAlignX, summaryY, { align: 'right' });
         if (isBold) doc.setFont(undefined, 'normal');
-        
-        // Reset to default for next line
         doc.setFontSize(12);
         doc.setTextColor(0, 0, 0);
-
-        summaryY += 7; // Increment Y position for the next line
+        summaryY += 7;
     };
-
     addLine('Previous Balance:', `₹${previousBalance.toFixed(2)}`);
     addLine('This Month\'s Bill:', `₹${totalAmount.toFixed(2)}`);
     addLine(`(Total Quantity: ${totalQuantity.toFixed(2)} L @ ₹${customer.milkPrice.toFixed(2)}/L)`, '', { size: 10, color: [100, 100, 100], isSubline: true });
     addLine('Total Amount Due:', `₹${(previousBalance + totalAmount).toFixed(2)}`);
     addLine('Payments Received:', `- ₹${totalPaid.toFixed(2)}`, { color: [0, 128, 0] });
-    
-    // Divider line
     summaryY += 2;
     doc.setLineWidth(0.5);
     doc.line(margin, summaryY, rightAlignX, summaryY);
     summaryY += 5;
-
-    // Final balance with color coding
-    const balanceColor = balance > 0 ? [220, 53, 69] : [40, 167, 69]; // Red for due, green for settled/credit
+    const balanceColor = balance > 0 ? [220, 53, 69] : [40, 167, 69];
     addLine('Outstanding Balance:', `₹${balance.toFixed(2)}`, { isBold: true, size: 14, color: balanceColor });
   };
-
 
   const handleDownloadPdf = () => {
     if (!selectedCustomerBillDetails) return;
@@ -403,13 +321,7 @@ Thank you for your business!
 
   const handleExportSummary = () => {
     const headers = ['Customer Name', 'Previous Balance', 'Current Month Amount', 'Payments Received', 'Outstanding Balance'];
-    const rows = allBillDetails.map(d => [
-        d.customer.name,
-        d.previousBalance.toFixed(2),
-        d.totalAmount.toFixed(2),
-        d.totalPaid.toFixed(2),
-        d.balance.toFixed(2)
-    ].join(','));
+    const rows = allBillDetails.map(d => [d.customer.name, d.previousBalance.toFixed(2), d.totalAmount.toFixed(2), d.totalPaid.toFixed(2), d.balance.toFixed(2)].join(','));
     const csvContent = [headers.join(','), ...rows].join('\n');
     downloadCSV(csvContent, `billing_summary_${billingMonth}.csv`);
   };
@@ -431,24 +343,17 @@ Thank you for your business!
     for (const [date, qtyStr] of editedQuantities.entries()) {
         const originalQty = deliveryMap.get(date)?.quantity ?? 0;
         const newQty = qtyStr === '' ? 0 : parseFloat(qtyStr);
-
-        // A change is valid if it's a number and not equal to the original quantity
-        if (!isNaN(newQty) && newQty !== originalQty) {
-            changes.set(date, newQty);
-        }
+        if (!isNaN(newQty) && newQty !== originalQty) changes.set(date, newQty);
     }
     return changes;
   }, [editedQuantities, deliveryMap]);
 
   const getDisplayQuantityForDate = (date: string): string => {
-    if (editedQuantities.has(date)) {
-        return editedQuantities.get(date)!;
-    }
+    if (editedQuantities.has(date)) return editedQuantities.get(date)!;
     return deliveryMap.get(date)?.quantity.toString() ?? '';
   };
   
   const handleDeliveryInputChange = (date: string, quantityStr: string) => {
-    // Allow only valid numbers (including decimals) or an empty string
     if (/^[0-9]*\.?[0-9]*$/.test(quantityStr)) {
         setEditedQuantities(prev => new Map(prev).set(date, quantityStr));
     }
@@ -457,55 +362,23 @@ Thank you for your business!
   const handleSaveChanges = async () => {
     if (!selectedCustomerId || pendingDeliveryChanges.size === 0) return;
     setIsSaving(true);
-    
     try {
         const changes = Array.from(pendingDeliveryChanges.entries());
-
-        const deliveriesToUpsert = changes
-            .filter(([, quantity]) => quantity > 0)
-            .map(([date, quantity]) => ({
-                customerId: selectedCustomerId,
-                date,
-                quantity,
-            }));
-            
-        const datesToDelete = changes
-            .filter(([, quantity]) => quantity === 0)
-            .map(([date]) => date)
-            .filter(date => deliveryMap.has(date));
-
-        const upsertPromise = deliveriesToUpsert.length > 0
-            ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select()
-            : Promise.resolve({ data: [], error: null });
-
-        const deletePromise = datesToDelete.length > 0
-            ? supabase.from('deliveries').delete().eq('customerId', selectedCustomerId).in('date', datesToDelete)
-            : Promise.resolve({ error: null });
-
+        const deliveriesToUpsert = changes.filter(([, quantity]) => quantity > 0).map(([date, quantity]) => ({ customerId: selectedCustomerId, date, quantity }));
+        const datesToDelete = changes.filter(([, quantity]) => quantity === 0).map(([date]) => date).filter(date => deliveryMap.has(date));
+        const upsertPromise = deliveriesToUpsert.length > 0 ? supabase.from('deliveries').upsert(deliveriesToUpsert, { onConflict: 'customerId,date' }).select() : Promise.resolve({ data: [], error: null });
+        const deletePromise = datesToDelete.length > 0 ? supabase.from('deliveries').delete().eq('customerId', selectedCustomerId).in('date', datesToDelete) : Promise.resolve({ error: null });
         const [upsertResult, deleteResult] = await Promise.all([upsertPromise, deletePromise]);
-        
         if (upsertResult.error) throw upsertResult.error;
         if (deleteResult.error) throw deleteResult.error;
-
-        // Fix: Manually merge state changes to ensure immediate UI update
         setDeliveries(prev => {
-            const deliveriesAfterDeletion = prev.filter(d => 
-                !(d.customerId === selectedCustomerId && datesToDelete.includes(d.date))
-            );
-            
-            const updatedDeliveriesMap = new Map(
-                deliveriesAfterDeletion.map(d => [`${d.customerId}-${d.date}`, d])
-            );
-
+            const afterDeletion = prev.filter(d => !(d.customerId === selectedCustomerId && datesToDelete.includes(d.date)));
+            const updatedMap = new Map(afterDeletion.map(d => [`${d.customerId}-${d.date}`, d]));
             if (upsertResult.data) {
-                (upsertResult.data as Delivery[]).forEach(d => {
-                    updatedDeliveriesMap.set(`${d.customerId}-${d.date}`, d);
-                });
+                (upsertResult.data as Delivery[]).forEach(d => { updatedMap.set(`${d.customerId}-${d.date}`, d); });
             }
-
-            return Array.from(updatedDeliveriesMap.values());
+            return Array.from(updatedMap.values());
         });
-
         setEditedQuantities(new Map());
         alert('Changes saved successfully!');
     } catch (error: any) {
@@ -515,9 +388,7 @@ Thank you for your business!
     }
   };
 
-  const saveButtonText = isSaving 
-    ? 'Saving...' 
-    : `Save Changes ${pendingDeliveryChanges.size > 0 ? `(${pendingDeliveryChanges.size})` : ''}`;
+  const saveButtonText = isSaving ? 'Saving...' : `Save Changes ${pendingDeliveryChanges.size > 0 ? `(${pendingDeliveryChanges.size})` : ''}`;
 
   return (
     <div>
@@ -531,7 +402,6 @@ Thank you for your business!
             <input type="month" value={billingMonth} onChange={e => setBillingMonth(e.target.value)} className="w-full sm:w-auto border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
         </div>
       </div>
-
       {selectedCustomerBillDetails ? (
         <div className="bg-white p-6 md:p-8 rounded-lg shadow-lg">
            <button onClick={() => setSelectedCustomerId('')} className="text-blue-600 hover:underline mb-4 print:hidden">&larr; Back to Monthly Summary</button>
@@ -549,7 +419,6 @@ Thank you for your business!
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div>
                 <h4 className="text-lg font-semibold text-gray-800 mb-2">Deliveries for {new Date(billingMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}</h4>
-                <p className="text-sm text-gray-500 mb-2">You can edit quantities below. Clear the input to remove a delivery.</p>
                 <div className="overflow-y-auto max-h-80 mb-4 border rounded-md">
                     <table className="w-full text-sm">
                         <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-4 py-2 text-left font-medium text-gray-600">Date</th><th className="px-4 py-2 text-right font-medium text-gray-600">Quantity (L)</th></tr></thead>
@@ -558,13 +427,7 @@ Thank you for your business!
                                     <tr key={date} className="border-t hover:bg-gray-50">
                                         <td className="px-4 py-1 text-gray-700">{new Date(date + 'T00:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short' })}</td>
                                         <td className="px-4 py-1 text-right">
-                                            <QuantityInput
-                                                value={getDisplayQuantityForDate(date)}
-                                                onChange={(newValue) => handleDeliveryInputChange(date, newValue)}
-                                                placeholder="0"
-                                                inputClassName="w-16"
-                                                readOnly={isReadOnly}
-                                            />
+                                            <QuantityInput value={getDisplayQuantityForDate(date)} onChange={(newValue) => handleDeliveryInputChange(date, newValue)} placeholder="0" inputClassName="w-16" readOnly={isReadOnly} />
                                         </td>
                                     </tr>
                                 ))}
@@ -588,14 +451,20 @@ Thank you for your business!
                         <div className="flex flex-col items-center bg-gray-50 p-4 rounded-lg border">
                             {isQrLoading && <div className="w-48 h-48 flex items-center justify-center bg-gray-100 rounded-md"><p>Generating QR...</p></div>}
                             {qrCodeDataUrl && !isQrLoading && <img src={qrCodeDataUrl} alt="UPI QR Code for payment" className="w-48 h-48 rounded-md" />}
-                            {!qrCodeDataUrl && !isQrLoading && <div className="w-48 h-48 flex items-center justify-center bg-gray-100 rounded-md text-center text-xs text-gray-500"><p>Could not load QR code. Please check your connection.</p></div>}
+                            {!qrCodeDataUrl && !isQrLoading && <div className="w-48 h-48 flex items-center justify-center bg-gray-100 rounded-md text-center text-xs text-gray-500"><p>Could not load QR code.</p></div>}
                             <p className="mt-3 text-sm text-gray-800 font-medium flex items-center">
-                                <ScanIcon className="h-4 w-4 mr-2 text-gray-500"/>
-                                Scan to pay using any UPI app
+                                <ScanIcon className="h-4 w-4 mr-2 text-gray-500"/>Scan to pay using any UPI app
                             </p>
-                            <p className="font-mono text-sm mt-2 bg-gray-200 px-3 py-1 rounded-full text-gray-700">
-                                9959202010@upi
-                            </p>
+                            <div className="flex items-center gap-2 mt-2">
+                                <p className="font-mono text-sm bg-gray-200 px-3 py-1 rounded-full text-gray-700">9966641724@upi</p>
+                                <button 
+                                    onClick={copyUpiToClipboard}
+                                    title="Copy UPI ID"
+                                    className={`p-1.5 rounded-md transition-colors ${copiedUpi ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                >
+                                    {copiedUpi ? <CheckIcon className="h-4 w-4"/> : <ClipboardIcon className="h-4 w-4"/>}
+                                </button>
+                            </div>
                         </div>
                     </div>
               )}
@@ -611,16 +480,8 @@ Thank you for your business!
                 <div className="fixed bottom-0 right-0 left-0 lg:left-64 bg-white/90 backdrop-blur-sm border-t border-gray-200 z-40 shadow-lg">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
                         <div className="flex justify-between items-center">
-                            <span className="text-gray-700 font-medium">
-                                You have {pendingDeliveryChanges.size} unsaved delivery change{pendingDeliveryChanges.size > 1 ? 's' : ''}.
-                            </span>
-                            <button 
-                                onClick={handleSaveChanges} 
-                                disabled={isSaving} 
-                                className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {saveButtonText}
-                            </button>
+                            <span className="text-gray-700 font-medium">You have {pendingDeliveryChanges.size} unsaved changes.</span>
+                            <button onClick={handleSaveChanges} disabled={isSaving} className="px-6 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saveButtonText}</button>
                         </div>
                     </div>
                 </div>
@@ -639,7 +500,6 @@ Thank you for your business!
             </div>
             {allBillDetails.length > 0 ? (
                 <div>
-                    {/* Desktop Table View */}
                     <div className="overflow-x-auto hidden md:block">
                         <table className="w-full text-sm text-left text-gray-500">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
@@ -655,14 +515,7 @@ Thank you for your business!
                             <tbody>
                                 {allBillDetails.map(details => (
                                     <tr key={details.customer.id} className="bg-white border-b hover:bg-gray-50">
-                                        <td className="px-4 py-2 font-medium text-gray-900">
-                                            {details.customer.name}
-                                            {details.customer.status === 'inactive' && (
-                                                <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                                                    Inactive
-                                                </span>
-                                            )}
-                                        </td>
+                                        <td className="px-4 py-2 font-medium text-gray-900">{details.customer.name}</td>
                                         <td className="px-4 py-2 text-right">₹{details.previousBalance.toFixed(2)}</td>
                                         <td className="px-4 py-2 text-right">₹{details.totalAmount.toFixed(2)}</td>
                                         <td className="px-4 py-2 text-right text-green-600">₹{details.totalPaid.toFixed(2)}</td>
@@ -678,25 +531,16 @@ Thank you for your business!
                             </tbody>
                         </table>
                     </div>
-                    {/* Mobile Card View */}
                     <div className="space-y-4 md:hidden">
                         {allBillDetails.map(details => (
                              <div key={details.customer.id} className="bg-white border rounded-lg shadow-sm p-4">
-                                <h4 className="font-bold text-lg text-gray-800 mb-2 flex items-center">
-                                    {details.customer.name}
-                                    {details.customer.status === 'inactive' && (
-                                        <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                                            Inactive
-                                        </span>
-                                    )}
-                                </h4>
+                                <h4 className="font-bold text-lg text-gray-800 mb-2">{details.customer.name}</h4>
                                 <div className="text-sm space-y-1 border-t pt-2">
                                     <p className="flex justify-between"><span>Prev. Balance:</span> <span>₹{details.previousBalance.toFixed(2)}</span></p>
                                     <p className="flex justify-between"><span>Current Bill:</span> <span>₹{details.totalAmount.toFixed(2)}</span></p>
                                     <p className="flex justify-between"><span>Paid:</span> <span className="text-green-600">₹{details.totalPaid.toFixed(2)}</span></p>
                                     <p className={`flex justify-between font-bold text-base mt-2 pt-2 border-t ${details.balance > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                        <span>Outstanding:</span> 
-                                        <span>₹{details.balance.toFixed(2)}</span>
+                                        <span>Outstanding:</span> <span>₹{details.balance.toFixed(2)}</span>
                                     </p>
                                 </div>
                                 <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
@@ -710,12 +554,11 @@ Thank you for your business!
             ) : (
                 <div className="text-center py-12 px-6">
                     <h3 className="text-lg font-medium text-gray-700">No Customers Match Your Search</h3>
-                    <p className="mt-1 text-sm text-gray-500">Try a different name or clear the search field.</p>
                 </div>
             )}
         </div>
       )}
-    </div>
+    </div> 
   );
 };
 

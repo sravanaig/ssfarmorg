@@ -1,11 +1,7 @@
 
-
-
-
-
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import type { Customer, Delivery, Payment, Order, PendingDelivery } from '../types';
-import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon, CheckIcon } from './Icons';
+import { TruckIcon, BillIcon, CreditCardIcon, UsersIcon, CheckIcon, XIcon } from './Icons';
 
 // This is a global from the CDN script in index.html
 declare const Chart: any;
@@ -26,7 +22,7 @@ const StatCard: React.FC<{
     color: string;
 }> = ({ title, value, subtitle, icon, color }) => {
     return (
-        <div className="bg-white p-6 rounded-lg shadow-md flex items-center space-x-4">
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center space-x-4 transition-transform hover:scale-[1.02]">
             <div className={`p-3 rounded-full ${color}`}>
                 {icon}
             </div>
@@ -61,6 +57,11 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
         const totalQuantityToday = todaysDeliveries.reduce((sum, d) => sum + d.quantity, 0);
         const customersServedToday = new Set(todaysDeliveries.map(d => d.customerId)).size;
 
+        // Missing Deliveries Today
+        const activeCustomerIds = customers.filter(c => c.status === 'active').map(c => c.id);
+        const servedCustomerIds = new Set(todaysDeliveries.map(d => d.customerId));
+        const missingDeliveriesCount = activeCustomerIds.filter(id => !servedCustomerIds.has(id)).length;
+
         // Month-to-Date Revenue
         const monthlyDeliveries = deliveries.filter(d => d.date.startsWith(currentMonth));
         const mtdRevenue = monthlyDeliveries.reduce((sum, d) => {
@@ -90,6 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
         return {
             totalQuantityToday,
             customersServedToday,
+            missingDeliveriesCount,
             mtdRevenue,
             mtdPayments,
             totalOutstanding,
@@ -262,40 +264,41 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, deliveries, payments, 
                 <StatCard
                     title="Today's Deliveries"
                     value={`${stats.totalQuantityToday.toFixed(2)} L`}
-                    subtitle={`${stats.customersServedToday} customers`}
+                    subtitle={`${stats.customersServedToday} customers served`}
                     icon={<TruckIcon className="h-6 w-6 text-white"/>}
                     color="bg-blue-500"
                 />
+                 <StatCard
+                    title="Missing Deliveries"
+                    value={`${stats.missingDeliveriesCount}`}
+                    subtitle="Customers without entries today"
+                    icon={<XIcon className="h-6 w-6 text-white"/>}
+                    color={stats.missingDeliveriesCount > 0 ? "bg-red-500" : "bg-green-500"}
+                />
                 <StatCard
-                    title="Month-to-Date Revenue"
+                    title="Month Revenue"
                     value={`₹${stats.mtdRevenue.toFixed(2)}`}
                     icon={<BillIcon className="h-6 w-6 text-white"/>}
-                    color="bg-green-500"
+                    color="bg-green-600"
                 />
                  <StatCard
-                    title="Payments Received (Month)"
+                    title="Payments (Month)"
                     value={`₹${stats.mtdPayments.toFixed(2)}`}
                     icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
                     color="bg-emerald-500"
                 />
                 <StatCard
-                    title="Total Outstanding Balance"
+                    title="Outstanding Balance"
                     value={`₹${stats.totalOutstanding.toFixed(2)}`}
                     icon={<CreditCardIcon className="h-6 w-6 text-white"/>}
-                    color="bg-red-500"
+                    color="bg-orange-500"
                 />
                 <StatCard
-                    title="Pending Deliveries"
+                    title="Pending Approvals"
                     value={`${stats.pendingDeliveriesCount}`}
-                    subtitle="Awaiting admin approval"
+                    subtitle="Deliveries to confirm"
                     icon={<CheckIcon className="h-6 w-6 text-white"/>}
                     color="bg-yellow-500"
-                />
-                <StatCard
-                    title="Active Customers"
-                    value={`${stats.activeCustomers}`}
-                    icon={<UsersIcon className="h-6 w-6 text-white"/>}
-                    color="bg-teal-500"
                 />
             </div>
             

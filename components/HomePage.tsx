@@ -1,10 +1,7 @@
 
-
-
 import React, { useState, useEffect } from 'react';
 import type { WebsiteContent } from '../types';
-// Fix: Removed MilkIcon as it does not exist in './Icons'. Also removed other unused icons.
-import { CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
+import { CheckIcon, TruckIcon, DashboardIcon, UsersIcon, HeartIcon, BarnIcon, QuoteIcon, ChevronDownIcon, ChevronUpIcon, MilkIcon } from './Icons';
 
 interface HomePageProps {
   content: WebsiteContent;
@@ -12,7 +9,7 @@ interface HomePageProps {
 
 type Product = WebsiteContent['productsPage']['products'][0];
 
-const ProductCard: React.FC<{ product: Product; icon: string }> = ({ product, icon }) => {
+const ProductCard: React.FC<{ product: Product; icon: React.ReactNode }> = ({ product, icon }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     const detailsToShow = [];
@@ -21,8 +18,8 @@ const ProductCard: React.FC<{ product: Product; icon: string }> = ({ product, ic
     if (product.process) detailsToShow.push({ title: 'Crafting Process', text: product.process });
 
     return (
-        <div className="bg-white p-8 rounded-lg shadow-md flex flex-col transition-all duration-300">
-            <div className="text-5xl mb-4 text-center">{icon}</div>
+        <div className="bg-white p-8 rounded-lg shadow-md flex flex-col transition-all duration-300 hover:shadow-xl">
+            <div className="text-blue-600 flex justify-center mb-4">{icon}</div>
             <h3 className="text-xl font-bold mb-2 text-center">{product.name}</h3>
             <p className="text-gray-600 text-justify flex-grow">{product.description}</p>
             {detailsToShow.length > 0 && (
@@ -217,7 +214,11 @@ const HomePage: React.FC<HomePageProps> = ({ content }) => {
                 <p className="mt-2 text-gray-600 mb-12">{content.productsSection.subtitle}</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                     {content.productsPage.products.map((product, index) => {
-                        const icons = ['🥛', '🐄', '🧀'];
+                        const icons = [
+                            <MilkIcon className="h-12 w-12" />,
+                            <MilkIcon className="h-12 w-12" />, // Reusing for variety
+                            <MilkIcon className="h-12 w-12" />
+                        ];
                         return <ProductCard key={index} product={product} icon={icons[index % icons.length]} />;
                     })}
                 </div>
